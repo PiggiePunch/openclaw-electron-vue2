@@ -428,12 +428,19 @@ const actions = {
     }
 
     if (stream === 'tool') {
-      dispatch('handleToolStreamEvent', { runId, seq, ts, data, sessionKey: targetSessionKey })
+      await dispatch('handleToolStreamEvent', { runId, seq, ts, data, sessionKey: targetSessionKey })
     } else if (stream === 'lifecycle') {
-      dispatch('handleLifecycleEvent', { runId, seq, ts, data, sessionKey: targetSessionKey })
+      await dispatch('handleLifecycleEvent', { runId, seq, ts, data, sessionKey: targetSessionKey })
     } else if (stream === 'error') {
       console.error('Agent error event:', data)
-      dispatch('createAgentErrorMessage', { sessionKey: targetSessionKey, runId, errorData: data })
+      await dispatch('createAgentErrorMessage', { sessionKey: targetSessionKey, runId, errorData: data })
+    } else {
+      // 未知流类型，但如果有数据内容，尝试清除thinking状态
+      console.warn(`Unknown stream type: ${stream}`)
+      if (data && (data.text || data.content || data.message)) {
+        console.log('🤖 Clearing thinking state - unknown stream with content')
+        commit('SET_THINKING_MESSAGE_ID', null)
+      }
     }
   },
 
@@ -594,7 +601,7 @@ const actions = {
   /**
    * 处理 lifecycle 事件
    */
-  handleLifecycleEvent({ commit, dispatch, state }: any, params: { runId: string; seq: number; ts: number; data: any; sessionKey: string }) {
+  async handleLifecycleEvent({ commit, dispatch, state }: any, params: { runId: string; seq: number; ts: number; data: any; sessionKey: string }) {
     const { runId, data, sessionKey } = params
     const phase = data?.phase
 
@@ -602,7 +609,7 @@ const actions = {
 
     if (phase === 'start') {
       console.log('📌 Agent run started:', runId)
-      dispatch('startStreamingTimeout')
+      await dispatch('startStreamingTimeout')
     } else if (phase === 'end' || phase === 'error') {
       commit('SET_STREAMING_MESSAGE_ID', null)
       commit('SET_THINKING_MESSAGE_ID', null)
@@ -628,7 +635,7 @@ const actions = {
         commit('SPLICE_MESSAGE', { sessionKey, index, message })
       })
 
-      dispatch('clearProcessedEventsForRun', runId)
+      await dispatch('clearProcessedEventsForRun', runId)
       commit('CLEAR_STREAMING_STATE')
       console.log('🏁 Agent run ended:', runId)
     }
@@ -665,12 +672,12 @@ const actions = {
     console.log('=== Handling chat message ===', payload)
 
     if (payload.runId && payload.state) {
-      dispatch('handleStreamingChatEvent', payload)
+      await dispatch('handleStreamingChatEvent', payload)
       return
     }
 
     console.log('Handling legacy message format')
-    dispatch('handleLegacyChatMessage', payload)
+    await dispatch('handleLegacyChatMessage', payload)
   },
 
   /**
@@ -680,6 +687,7 @@ const actions = {
     const { runId, sessionKey, seq, state: msgState, message, stopReason } = payload
 
     console.log(`📨📨📨 Chat event: runId=${runId}, seq=${seq}, state=${msgState}`)
+    console.log(`   - Full payload:`, JSON.stringify(payload).substring(0, 500))
 
     if (await dispatch('isEventProcessed', { eventType: 'chat', runId, seq })) {
       console.log(`   - Skipping duplicate chat event ${runId}-${seq}`)
@@ -698,26 +706,31 @@ const actions = {
       commit('SET_MESSAGES', { sessionKey: targetSessionKey, messages: [] })
     }
 
-    const newContent = dispatch('extractMessageContent', message)
-    const contentType = dispatch('detectContentType', newContent)
+    const newContent = await dispatch('extractMessageContent', message)
+    const contentType = await dispatch('detectContentType', newContent)
 
     console.log(`   - Raw message:`, JSON.stringify(message).substring(0, 200))
     console.log(`   - Extracted content: "${newContent.substring(0, 100)}..."`)
+    console.log(`   - Content length: ${newContent.length}`)
     console.log(`   - Content type: ${contentType}`)
+
+    // 清除"正在思考"状态 - 只要有消息内容就清除
+    if (newContent.trim().length > 0) {
+      console.log('🤖 Clearing thinking state - content received')
+      commit('SET_THINKING_MESSAGE_ID', null)
+    }
 
     const messageId = `${runId}-${contentType}`
     const existingIndex = state.messages[targetSessionKey].findIndex((m: Message) => m.id === messageId)
 
     if (msgState === 'delta') {
-      commit('SET_THINKING_MESSAGE_ID', null)
-
       if (contentType === 'text' && state.currentRunId === runId) {
         commit('SET_STREAMING_MESSAGE_ID', messageId)
       }
 
       if (existingIndex !== -1) {
         const currentContent = state.messages[targetSessionKey][existingIndex].content
-        const appendedContent = dispatch('appendTextContent', { previous: currentContent, next: newContent })
+        const appendedContent = await dispatch('appendTextContent', { previous: currentContent, next: newContent })
 
         console.log(`📝 Appending to message ${messageId}:`)
 
@@ -770,7 +783,7 @@ const actions = {
         commit('SPLICE_MESSAGE', { sessionKey: targetSessionKey, index, message })
       })
 
-      dispatch('clearProcessedEventsForRun', runId)
+      await dispatch('clearProcessedEventsForRun', runId)
     } else if (msgState === 'error') {
       console.error(`❌ Error in run ${runId}:`, payload.errorMessage)
 
@@ -792,7 +805,7 @@ const actions = {
           commit('SPLICE_MESSAGE', { sessionKey: targetSessionKey, index, message: updatedMessage })
         }
       })
-      dispatch('clearProcessedEventsForRun', runId)
+      await dispatch('clearProcessedEventsForRun', runId)
     } else if (msgState === 'aborted') {
       console.log(`⏹️ Run ${runId} aborted`)
 
@@ -814,7 +827,12 @@ const actions = {
           commit('SPLICE_MESSAGE', { sessionKey: targetSessionKey, index, message: updatedMessage })
         }
       })
-      dispatch('clearProcessedEventsForRun', runId)
+      await dispatch('clearProcessedEventsForRun', runId)
+    } else {
+      // 未知状态 - 记录并清除thinking状态
+      console.warn(`⚠️ Unknown msgState: ${msgState}`)
+      console.warn(`   Full payload:`, payload)
+      commit('SET_THINKING_MESSAGE_ID', null)
     }
   },
 
@@ -844,6 +862,14 @@ const actions = {
       }).filter(Boolean).join('')
     }
 
+    // 确保返回值始终是字符串
+    if (typeof content !== 'string') {
+      if (content && typeof content === 'object') {
+        return JSON.stringify(content)
+      }
+      return String(content || '')
+    }
+
     return content
   },
 
@@ -851,7 +877,10 @@ const actions = {
    * 检测消息内容的类型
    */
   detectContentType(_: any, content: string): 'tool_call' | 'tool_result' | 'thinking' | 'text' {
-    if (!content) return 'text'
+    // 确保content是字符串
+    if (!content || typeof content !== 'string') {
+      return 'text'
+    }
 
     if (content.includes('[工具调用:') || content.includes('[toolCall]')) {
       return 'tool_call'
