@@ -2,7 +2,7 @@
   <transition name="dialog">
     <div v-if="open" class="dialog-overlay" @click="handleCancel">
       <div class="dialog" @click.stop>
-        <h3>{{ isEdit ? '编辑定时任务' : '添加定时任务' }}</h3>
+        <h3>{{ isEditMode ? '编辑定时任务' : '添加定时任务' }}</h3>
 
           <div class="dialog-content">
             <!-- 基本信息 -->
@@ -281,7 +281,7 @@ export default {
   },
 
   computed: {
-    isEdit(): boolean {
+    isEditMode(): boolean {
       return this.isEdit
     },
 

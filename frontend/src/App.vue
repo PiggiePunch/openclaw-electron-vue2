@@ -172,10 +172,6 @@ export default {
       }
     },
 
-    openSettings() {
-      (this as any).openSettings()
-    },
-
     startResize(event: MouseEvent) {
       this.isResizing = true
       document.addEventListener('mousemove', this.handleResize)

@@ -4,6 +4,8 @@
   "description": "OpenClaw Electron Desktop Client",
   "main": "dist/main.cjs",
   "scripts": {
+    "clean": "bash clean.sh",
+    "clean:cache": "rm -rf frontend/node_modules/.cache frontend/.cache frontend/dist dist",
     "build": "tsc && shx cp src/preload.js dist/preload.cjs && shx cp src/main.js dist/main.cjs && shx cp src/gateway-client.js dist/gateway-client.cjs && shx cp src/config-manager.js dist/config-manager.cjs && shx cp src/log-manager.js dist/log-manager.cjs && shx cp src/device-identity.js dist/device-identity.cjs",
     "build:frontend": "cd frontend && npm run build",
     "dev": "npm run build:frontend && tsc && shx cp src/preload.js dist/preload.cjs && shx cp src/main.js dist/main.cjs && shx cp src/gateway-client.js dist/gateway-client.cjs && shx cp src/config-manager.js dist/config-manager.cjs && shx cp src/log-manager.js dist/log-manager.cjs && shx cp src/device-identity.js dist/device-identity.cjs && electron .",

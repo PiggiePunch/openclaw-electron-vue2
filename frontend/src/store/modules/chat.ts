@@ -4,6 +4,7 @@
  * 从Pinia迁移到Vuex，保留所有原有逻辑
  */
 
+import Vue from 'vue'
 import type { ChatState, Message, Session } from '@/types/chat'
 import { sendMessage, getChatHistory, listSessions, deleteSession as deleteSessionApi, patchSession, abortChat } from '@/api/chat'
 
