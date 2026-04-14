@@ -2,13 +2,13 @@
   "name": "openclaw-electron",
   "version": "1.0.0",
   "description": "OpenClaw Electron Desktop Client",
-  "main": "dist/main.js",
+  "main": "dist/main.cjs",
   "scripts": {
-    "build": "tsc && tsc -p tsconfig.preload.json && shx mv dist/preload.js dist/preload.cjs",
+    "build": "tsc && shx cp src/preload.js dist/preload.cjs && shx cp src/main.js dist/main.cjs && shx cp src/gateway-client.js dist/gateway-client.cjs && shx cp src/config-manager.js dist/config-manager.cjs && shx cp src/log-manager.js dist/log-manager.cjs && shx cp src/device-identity.js dist/device-identity.cjs",
     "build:frontend": "cd frontend && npm run build",
-    "dev": "npm run build:frontend && tsc && tsc -p tsconfig.preload.json && shx mv dist/preload.js dist/preload.cjs && electron .",
-    "dev:electron": "tsc && tsc -p tsconfig.preload.json && shx mv dist/preload.js dist/preload.cjs && cross-env NODE_ENV=development electron .",
-    "dev:hot": "concurrently \"cd frontend && npm run dev\" \"tsc && tsc -p tsconfig.preload.json && shx mv dist/preload.js dist/preload.cjs && cross-env NODE_ENV=development electron .\"",
+    "dev": "npm run build:frontend && tsc && shx cp src/preload.js dist/preload.cjs && shx cp src/main.js dist/main.cjs && shx cp src/gateway-client.js dist/gateway-client.cjs && shx cp src/config-manager.js dist/config-manager.cjs && shx cp src/log-manager.js dist/log-manager.cjs && shx cp src/device-identity.js dist/device-identity.cjs && electron .",
+    "dev:electron": "tsc && shx cp src/preload.js dist/preload.cjs && shx cp src/main.js dist/main.cjs && shx cp src/gateway-client.js dist/gateway-client.cjs && shx cp src/config-manager.js dist/config-manager.cjs && shx cp src/log-manager.js dist/log-manager.cjs && shx cp src/device-identity.js dist/device-identity.cjs && cross-env NODE_ENV=development electron .",
+    "dev:hot": "concurrently \"cd frontend && npm run dev\" \"wait-on http://localhost:5173 && tsc && shx cp src/preload.js dist/preload.cjs && shx cp src/main.js dist/main.cjs && shx cp src/gateway-client.js dist/gateway-client.cjs && shx cp src/config-manager.js dist/config-manager.cjs && shx cp src/log-manager.js dist/log-manager.cjs && shx cp src/device-identity.js dist/device-identity.cjs && cross-env NODE_ENV=development electron .\"",
     "start": "electron .",
     "watch": "tsc --watch"
   },
@@ -19,7 +19,6 @@
   ],
   "author": "",
   "license": "MIT",
-  "type": "module",
   "dependencies": {
     "electron": "^34.0.0",
     "tweetnacl": "^1.0.3",
@@ -32,6 +31,7 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
     "shx": "^0.4.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "wait-on": "^9.0.5"
   }
 }

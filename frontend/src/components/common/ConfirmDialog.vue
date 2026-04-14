@@ -1,70 +1,71 @@
 <template>
-  <Teleport to="body">
-    <Transition name="dialog">
-      <div v-if="open" class="dialog-overlay" @click="handleCancel">
-        <div class="dialog" @click.stop>
-          <h3>{{ title }}</h3>
-          <p>{{ message }}</p>
-          <div class="dialog-buttons">
-            <button class="btn btn-secondary" @click="handleCancel">
-              {{ cancelText }}
-            </button>
-            <button class="btn btn-primary" @click="handleConfirm">
-              {{ confirmText }}
-            </button>
-          </div>
+  <transition name="dialog">
+    <div v-if="open" class="dialog-overlay" @click="handleCancel">
+      <div class="dialog" @click.stop>
+        <h3>{{ title }}</h3>
+        <p>{{ message }}</p>
+        <div class="dialog-buttons">
+          <button class="btn btn-secondary" @click="handleCancel">
+            {{ cancelText }}
+          </button>
+          <button class="btn btn-primary" @click="handleConfirm">
+            {{ confirmText }}
+          </button>
         </div>
       </div>
-    </Transition>
-  </Teleport>
+    </div>
+  </transition>
 </template>
 
-<script setup lang="ts">
-import { ref } from 'vue'
+<script lang="ts">
+export default {
+  name: 'ConfirmDialog',
 
-interface Props {
-  title?: string
-  message?: string
-  confirmText?: string
-  cancelText?: string
+  props: {
+    title: {
+      type: String,
+      default: 'Confirm'
+    },
+    message: {
+      type: String,
+      default: 'Are you sure?'
+    },
+    confirmText: {
+      type: String,
+      default: 'Confirm'
+    },
+    cancelText: {
+      type: String,
+      default: 'Cancel'
+    }
+  },
+
+  data() {
+    return {
+      open: false
+    }
+  },
+
+  methods: {
+    show() {
+      this.open = true
+    },
+
+    hide() {
+      this.open = false
+    },
+
+    handleConfirm() {
+      this.hide()
+      this.$emit('confirm')
+    },
+
+    handleCancel() {
+      this.hide()
+      this.$emit('cancel')
+    }
+  }
 }
-
-const props = withDefaults(defineProps<Props>(), {
-  title: 'Confirm',
-  message: 'Are you sure?',
-  confirmText: 'Confirm',
-  cancelText: 'Cancel'
-})
-
-const emit = defineEmits<{
-  confirm: []
-  cancel: []
-}>()
-
-const open = ref(false)
-
-function show() {
-  open.value = true
-}
-
-function hide() {
-  open.value = false
-}
-
-function handleConfirm() {
-  hide()
-  emit('confirm')
-}
-
-function handleCancel() {
-  hide()
-  emit('cancel')
-}
-
-defineExpose({
-  show,
-  hide
-})
 </script>
 
 <style scoped>

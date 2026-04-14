@@ -1,25 +1,43 @@
 <template>
-  <Teleport to="body">
-    <Transition name="loading">
-      <div v-if="loading" class="loading-overlay">
-        <div class="spinner"></div>
-        <div class="loading-message">{{ message }}</div>
-      </div>
-    </Transition>
-  </Teleport>
+  <transition name="loading">
+    <div v-if="computedLoading" class="loading-overlay">
+      <div class="spinner"></div>
+      <div class="loading-message">{{ computedMessage }}</div>
+    </div>
+  </transition>
 </template>
 
-<script setup lang="ts">
-import { storeToRefs } from 'pinia'
-import { useUiStore } from '@/stores'
+<script lang="ts">
+import { mapState } from 'vuex'
 
-const uiStore = useUiStore()
-const { loading, loadingMessage } = storeToRefs(uiStore)
+export default {
+  name: 'Loading',
 
-defineProps<{
-  loading?: boolean
-  message?: string
-}>()
+  props: {
+    loading: {
+      type: Boolean,
+      default: false
+    },
+    message: {
+      type: String,
+      default: '加载中...'
+    }
+  },
+
+  computed: {
+    ...mapState('ui', {
+      uiLoading: 'loading',
+      loadingMessage: 'loadingMessage'
+    }),
+
+    computedLoading(): boolean {
+      return (this as any).loading !== undefined ? (this as any).loading : (this as any).uiLoading
+    },
+    computedMessage(): string {
+      return (this as any).message || (this as any).loadingMessage || '加载中...'
+    }
+  }
+}
 </script>
 
 <style scoped>

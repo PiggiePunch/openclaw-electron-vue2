@@ -1,25 +1,12 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { app } from 'electron';
+const fs = require('fs');
+const path = require('path');
+const { app } = require('electron');
 
-export interface LogEntry {
-  timestamp: string;
-  level: string;
-  source: string;
-  message: string;
-}
-
-export class LogManager {
-  private logDir: string;
-  private currentLogFile: string;
-  private maxLogFiles = 7; // Keep 7 days of logs
-  private maxLogSize = 10 * 1024 * 1024; // 10 MB per file
-
+class LogManager {
   constructor() {
     const userDataPath = app.getPath('userData');
     this.logDir = path.join(userDataPath, 'logs');
 
-    // Ensure log directory exists
     if (!fs.existsSync(this.logDir)) {
       fs.mkdirSync(this.logDir, { recursive: true });
     }
@@ -27,10 +14,13 @@ export class LogManager {
     const today = new Date().toISOString().split('T')[0];
     this.currentLogFile = path.join(this.logDir, `openclaw-${today}.log`);
 
+    this.maxLogFiles = 7;
+    this.maxLogSize = 10 * 1024 * 1024;
+
     this.cleanOldLogs();
   }
 
-  private cleanOldLogs(): void {
+  cleanOldLogs() {
     try {
       const files = fs.readdirSync(this.logDir)
         .filter(file => file.endsWith('.log'))
@@ -39,9 +29,8 @@ export class LogManager {
           path: path.join(this.logDir, file),
           mtime: fs.statSync(path.join(this.logDir, file)).mtime,
         }))
-        .sort((a, b) => b.mtime.getTime() - a.mtime.getTime());
+        .sort((a, b) => b.mtime - a.mtime);
 
-      // Delete old files beyond maxLogFiles
       if (files.length > this.maxLogFiles) {
         for (const file of files.slice(this.maxLogFiles)) {
           fs.unlinkSync(file.path);
@@ -52,46 +41,43 @@ export class LogManager {
     }
   }
 
-  log(source: string, message: string, level: string = 'info'): void {
+  log(source, message, level = 'info') {
     const timestamp = new Date().toISOString();
     const logEntry = `[${timestamp}] [${level.toUpperCase()}] [${source}] ${message}\n`;
 
     try {
-      // Check if we need to rotate the log file
       if (fs.existsSync(this.currentLogFile)) {
         const stats = fs.statSync(this.currentLogFile);
         if (stats.size >= this.maxLogSize) {
-          // Rotate to a new file with timestamp
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
           const rotatedPath = path.join(this.logDir, `openclaw-${timestamp}.log`);
           fs.renameSync(this.currentLogFile, rotatedPath);
         }
       }
 
-      // Append to current log file
       fs.appendFileSync(this.currentLogFile, logEntry);
     } catch (error) {
       console.error('Failed to write log:', error);
     }
   }
 
-  info(source: string, message: string): void {
+  info(source, message) {
     this.log(source, message, 'info');
   }
 
-  warn(source: string, message: string): void {
+  warn(source, message) {
     this.log(source, message, 'warn');
   }
 
-  error(source: string, message: string): void {
+  error(source, message) {
     this.log(source, message, 'error');
   }
 
-  debug(source: string, message: string): void {
+  debug(source, message) {
     this.log(source, message, 'debug');
   }
 
-  getLogs(options: { limit?: number; level?: string; source?: string } = {}): LogEntry[] {
+  getLogs(options = {}) {
     const { limit = 1000, level, source } = options;
 
     try {
@@ -102,20 +88,17 @@ export class LogManager {
       const content = fs.readFileSync(this.currentLogFile, 'utf-8');
       const lines = content.split('\n').filter(line => line.trim());
 
-      const entries: LogEntry[] = [];
+      const entries = [];
 
       for (const line of lines.reverse()) {
-        // Parse log line format: [timestamp] [level] [source] message
         const match = line.match(/^\[([^\]]+)\]\s+\[([^\]]+)\]\s+\[([^\]]+)\]\s+(.+)$/);
         if (match) {
           const [, timestamp, logLevel, logSource, message] = match;
 
-          // Filter by level if specified
           if (level && logLevel.toLowerCase() !== level.toLowerCase()) {
             continue;
           }
 
-          // Filter by source if specified
           if (source && logSource.toLowerCase() !== source.toLowerCase()) {
             continue;
           }
@@ -140,7 +123,7 @@ export class LogManager {
     }
   }
 
-  clearLogs(): boolean {
+  clearLogs() {
     try {
       if (fs.existsSync(this.currentLogFile)) {
         fs.unlinkSync(this.currentLogFile);
@@ -152,7 +135,9 @@ export class LogManager {
     }
   }
 
-  getLogFilePath(): string {
+  getLogFilePath() {
     return this.currentLogFile;
   }
 }
+
+module.exports = { LogManager };

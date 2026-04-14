@@ -96,12 +96,10 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
-import { useUiStore } from '@/stores'
+<script lang="ts">
+import { mapActions } from 'vuex'
 import CronJobDialog from '@/components/common/CronJobDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import type { CronJobFormData } from '@/components/common/CronJobDialog.vue'
 
 interface CronJob {
   id: string
@@ -119,362 +117,380 @@ interface CronJob {
   deleteAfterRun?: boolean
 }
 
-const uiStore = useUiStore()
-const jobs = ref<CronJob[]>([])
-const loading = ref(false)
-const availableAgents = ref<any[]>([])
+export default {
+  name: 'CronPanel',
 
-const cronJobDialogRef = ref<InstanceType<typeof CronJobDialog> | null>(null)
-const confirmDialogRef = ref<InstanceType<typeof ConfirmDialog> | null>(null)
+  components: {
+    CronJobDialog,
+    ConfirmDialog
+  },
 
-// For tracking which job is being edited or deleted
-const editingJobId = ref<string | null>(null)
-const deletingJobId = ref<string | null>(null)
-
-// Computed properties for dialog bindings
-const isEditingJob = computed(() => !!editingJobId.value)
-const currentEditJob = computed(() => {
-  if (!editingJobId.value) return null
-  return jobs.value.find(j => j.id === editingJobId.value) || null
-})
-const confirmButtonText = computed(() => editingJobId.value ? '保存' : '添加')
-const deleteConfirmMessage = computed(() => {
-  if (!deletingJobId.value) return ''
-  const job = jobs.value.find(j => j.id === deletingJobId.value)
-  const name = job?.label || job?.name || deletingJobId.value
-  return `确定要删除定时任务"${name}"吗？`
-})
-
-onMounted(() => {
-  loadJobs()
-  loadAgents()
-})
-
-async function loadAgents() {
-  try {
-    const result = await window.electronAPI.listAgents()
-
-    if (result.success && result.data) {
-      let agents = result.data
-      if (agents && !Array.isArray(agents) && agents.agents) {
-        agents = agents.agents
-      }
-      availableAgents.value = Array.isArray(agents) ? agents : []
+  data() {
+    return {
+      jobs: [] as CronJob[],
+      loading: false,
+      availableAgents: [] as any[],
+      editingJobId: null as string | null,
+      deletingJobId: null as string | null
     }
-  } catch (error: any) {
-    console.error('Failed to load agents:', error)
+  },
+
+  computed: {
+    isEditingJob(): boolean {
+      return !!this.editingJobId
+    },
+
+    currentEditJob(): CronJob | null {
+      if (!this.editingJobId) return null
+      return this.jobs.find(j => j.id === this.editingJobId) || null
+    },
+
+    confirmButtonText(): string {
+      return this.editingJobId ? '保存' : '添加'
+    },
+
+    deleteConfirmMessage(): string {
+      if (!this.deletingJobId) return ''
+      const job = this.jobs.find(j => j.id === this.deletingJobId)
+      const name = job?.label || job?.name || this.deletingJobId
+      return `确定要删除定时任务"${name}"吗？`
+    }
+  },
+
+  methods: {
+    ...mapActions('ui', ['showToast', 'showLoading', 'hideLoading']),
+
+    mounted() {
+      this.loadJobs()
+      this.loadAgents()
+    },
+
+    async loadAgents() {
+      try {
+        const result = await (window as any).electronAPI.listAgents()
+
+        if (result.success && result.data) {
+          let agents = result.data
+          if (agents && !Array.isArray(agents) && agents.agents) {
+            agents = agents.agents
+          }
+          this.availableAgents = Array.isArray(agents) ? agents : []
+        }
+      } catch (error: any) {
+        console.error('Failed to load agents:', error)
+      }
+    },
+
+    async loadJobs() {
+      this.loading = true
+      try {
+        const result = await (window as any).electronAPI.listCronJobs()
+
+        if (!result.success) {
+          throw new Error(result.error || '加载定时任务失败')
+        }
+
+        // Gateway might return different data structures
+        let jobsData = result.data
+        if (jobsData && typeof jobsData === 'object' && !Array.isArray(jobsData)) {
+          jobsData = jobsData.jobs || jobsData.items || jobsData.data || []
+        }
+
+        this.jobs = Array.isArray(jobsData) ? jobsData : []
+      } catch (error: any) {
+        console.error('Failed to load cron jobs:', error)
+        this.showToast({ message: error.message || '加载定时任务失败', type: 'error' })
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async handleAddJob() {
+      if (this.availableAgents.length === 0) {
+        await this.loadAgents()
+        if (this.availableAgents.length === 0) {
+          this.showToast({ message: '没有可用的 Agent，请先连接到 Gateway', type: 'error' })
+          return
+        }
+      }
+
+      this.editingJobId = null
+      const cronJobDialogRef = this.$refs.cronJobDialogRef as any
+      cronJobDialogRef?.show()
+    },
+
+    async onAddJobConfirm(data: any) {
+      try {
+        this.loading = true
+
+        // Build schedule object based on kind
+        let schedule: any = {}
+        if (data.scheduleKind === 'every') {
+          const unitToMs = { minutes: 60000, hours: 3600000, days: 86400000 }
+          schedule = {
+            kind: 'every',
+            everyMs: data.everyAmount * unitToMs[data.everyUnit]
+          }
+        } else if (data.scheduleKind === 'cron') {
+          schedule = {
+            kind: 'cron',
+            expr: data.cronExpr
+          }
+        }
+
+        // Build payload based on agentId
+        let payload: any
+        if (data.agentId === 'main') {
+          payload = {
+            kind: 'systemEvent',
+            text: data.message.trim()
+          }
+          // Optional fields for systemEvent
+          if (data.model) payload.model = data.model
+          if (data.thinking) payload.thinking = data.thinking
+          if (data.timeout) payload.timeoutSeconds = data.timeout
+          if (data.fallbacks) {
+            payload.fallbacks = data.fallbacks.split(',').map((s: string) => s.trim()).filter((s: string) => s)
+          }
+        } else {
+          payload = {
+            kind: 'agentTurn',
+            message: data.message.trim()
+          }
+          // Optional fields for agentTurn
+          if (data.model) payload.model = data.model
+          if (data.thinking) payload.thinking = data.thinking
+          if (data.timeout) payload.timeoutSeconds = data.timeout
+          if (data.fallbacks) {
+            payload.fallbacks = data.fallbacks.split(',').map((s: string) => s.trim()).filter((s: string) => s)
+          }
+          if (data.lightContext) payload.lightContext = true
+        }
+
+        const newJob = {
+          name: data.name,
+          description: data.description || undefined,
+          agentId: data.agentId,
+          enabled: data.enabled,
+          schedule: schedule,
+          sessionTarget: data.sessionTarget,
+          sessionKey: data.sessionKey || undefined,
+          wakeMode: data.wakeMode,
+          payload: payload,
+          deleteAfterRun: data.deleteAfterRun || undefined
+        }
+
+        const result = await (window as any).electronAPI.addCronJob(newJob)
+
+        if (!result.success) {
+          throw new Error(result.error || '添加任务失败')
+        }
+
+        this.showToast({ message: '任务添加成功', type: 'success' })
+        await this.loadJobs()
+      } catch (error: any) {
+        console.error('Failed to add cron job:', error)
+        this.showToast({ message: error.message || '添加任务失败', type: 'error' })
+      } finally {
+        this.loading = false
+      }
+    },
+
+    async handleEditJob(jobId: string) {
+      const job = this.jobs.find(j => j.id === jobId)
+      if (!job) {
+        this.showToast({ message: '任务不存在', type: 'error' })
+        return
+      }
+
+      this.editingJobId = jobId
+      await this.$nextTick()
+      const cronJobDialogRef = this.$refs.cronJobDialogRef as any
+      cronJobDialogRef?.show()
+    },
+
+    async onEditJobConfirm(data: any) {
+      if (!this.editingJobId) return
+
+      try {
+        this.loading = true
+
+        // 获取原始job
+        const originalJob = this.jobs.find(j => j.id === this.editingJobId)
+        if (!originalJob) {
+          throw new Error('任务不存在')
+        }
+
+        // 如果agentId从main改为其他，或从其他改为main，需要删除后重建
+        const agentChanged = originalJob.agentId !== data.agentId
+
+        // Build schedule object based on kind
+        let schedule: any = {}
+        if (data.scheduleKind === 'every') {
+          const unitToMs = { minutes: 60000, hours: 3600000, days: 86400000 }
+          schedule = {
+            kind: 'every',
+            everyMs: data.everyAmount * unitToMs[data.everyUnit]
+          }
+        } else if (data.scheduleKind === 'cron') {
+          schedule = {
+            kind: 'cron',
+            expr: data.cronExpr
+          }
+        }
+
+        // Build payload based on agentId
+        let payload: any
+        if (data.agentId === 'main') {
+          payload = {
+            kind: 'systemEvent',
+            text: data.message.trim()
+          }
+          if (data.model) payload.model = data.model
+          if (data.thinking) payload.thinking = data.thinking
+          if (data.timeout) payload.timeoutSeconds = data.timeout
+          if (data.fallbacks) {
+            payload.fallbacks = data.fallbacks.split(',').map((s: string) => s.trim()).filter((s: string) => s)
+          }
+        } else {
+          payload = {
+            kind: 'agentTurn',
+            message: data.message.trim()
+          }
+          if (data.model) payload.model = data.model
+          if (data.thinking) payload.thinking = data.thinking
+          if (data.timeout) payload.timeoutSeconds = data.timeout
+          if (data.fallbacks) {
+            payload.fallbacks = data.fallbacks.split(',').map((s: string) => s.trim()).filter((s: string) => s)
+          }
+          if (data.lightContext) payload.lightContext = true
+        }
+
+        const jobData = {
+          name: data.name,
+          description: data.description || undefined,
+          agentId: data.agentId,
+          enabled: data.enabled,
+          schedule: schedule,
+          sessionTarget: data.sessionTarget,
+          sessionKey: data.sessionKey || undefined,
+          wakeMode: data.wakeMode,
+          payload: payload,
+          deleteAfterRun: data.deleteAfterRun || undefined
+        }
+
+        let result
+        if (agentChanged) {
+          // Agent改变，先删除再创建
+          const deleteResult = await (window as any).electronAPI.removeCronJob(this.editingJobId)
+          if (!deleteResult.success) {
+            throw new Error(deleteResult.error || '删除原任务失败')
+          }
+
+          // 创建新job
+          result = await (window as any).electronAPI.addCronJob(jobData)
+        } else {
+          // Agent未改变，使用正常更新
+          result = await (window as any).electronAPI.updateCronJob(this.editingJobId, jobData)
+        }
+
+        if (!result.success) {
+          throw new Error(result.error || '更新任务失败')
+        }
+
+        this.showToast({ message: '任务更新成功', type: 'success' })
+        await this.loadJobs()
+      } catch (error: any) {
+        console.error('Failed to update cron job:', error)
+        this.showToast({ message: error.message || '更新任务失败', type: 'error' })
+      } finally {
+        this.loading = false
+        this.editingJobId = null
+      }
+    },
+
+    async handleRunJob(jobId: string) {
+      try {
+        this.showLoading({ message: '正在运行任务...' })
+
+        const result = await (window as any).electronAPI.runCronJob(jobId, 'force')
+
+        if (!result.success) {
+          throw new Error(result.error || '运行任务失败')
+        }
+
+        this.showToast({ message: '任务运行成功', type: 'success' })
+        await this.loadJobs()
+      } catch (error: any) {
+        console.error('Failed to run cron job:', error)
+        this.showToast({ message: error.message || '运行任务失败', type: 'error' })
+      } finally {
+        this.hideLoading()
+      }
+    },
+
+    handleDeleteJob(jobId: string) {
+      const job = this.jobs.find(j => j.id === jobId)
+      if (!job) return
+
+      this.deletingJobId = jobId
+      const confirmDialogRef = this.$refs.confirmDialogRef as any
+      confirmDialogRef?.show()
+    },
+
+    async onDeleteConfirm() {
+      if (!this.deletingJobId) return
+
+      try {
+        this.showLoading({ message: '正在删除任务...' })
+
+        const result = await (window as any).electronAPI.removeCronJob(this.deletingJobId)
+
+        if (!result.success) {
+          throw new Error(result.error || '删除任务失败')
+        }
+
+        this.jobs = this.jobs.filter(j => j.id !== this.deletingJobId)
+        this.showToast({ message: '任务删除成功', type: 'success' })
+      } catch (error: any) {
+        console.error('Failed to delete cron job:', error)
+        this.showToast({ message: error.message || '删除任务失败', type: 'error' })
+      } finally {
+        this.hideLoading()
+        this.deletingJobId = null
+      }
+    },
+
+    formatSchedule(schedule: any): string {
+      if (!schedule) return '未设置'
+
+      if (schedule.kind === 'cron') {
+        return `Cron: ${schedule.expr}`
+      }
+
+      if (schedule.kind === 'every') {
+        const ms = schedule.everyMs || 0
+        if (ms % 86400000 === 0) {
+          return `每 ${ms / 86400000} 天`
+        } else if (ms % 3600000 === 0) {
+          return `每 ${ms / 3600000} 小时`
+        } else if (ms % 60000 === 0) {
+          return `每 ${ms / 60000} 分钟`
+        }
+        return `间隔: ${ms}ms`
+      }
+
+      if (schedule.cron) {
+        return `Cron: ${schedule.cron}`
+      }
+
+      if (schedule.interval) {
+        return `间隔: ${schedule.interval}`
+      }
+
+      return JSON.stringify(schedule)
+    }
   }
-}
-
-async function loadJobs() {
-  loading.value = true
-  try {
-    const result = await window.electronAPI.listCronJobs()
-
-    if (!result.success) {
-      throw new Error(result.error || '加载定时任务失败')
-    }
-
-    // Gateway might return different data structures
-    let jobsData = result.data
-    if (jobsData && typeof jobsData === 'object' && !Array.isArray(jobsData)) {
-      jobsData = jobsData.jobs || jobsData.items || jobsData.data || []
-    }
-
-    jobs.value = Array.isArray(jobsData) ? jobsData : []
-  } catch (error: any) {
-    console.error('Failed to load cron jobs:', error)
-    uiStore.showToast(error.message || '加载定时任务失败', 'error')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function handleAddJob() {
-  if (availableAgents.value.length === 0) {
-    await loadAgents()
-    if (availableAgents.value.length === 0) {
-      uiStore.showToast('没有可用的 Agent，请先连接到 Gateway', 'error')
-      return
-    }
-  }
-
-  editingJobId.value = null
-  cronJobDialogRef.value?.show()
-}
-
-async function onAddJobConfirm(data: CronJobFormData) {
-  try {
-    loading.value = true
-
-    // Build schedule object based on kind
-    let schedule: any = {}
-    if (data.scheduleKind === 'every') {
-      const unitToMs = { minutes: 60000, hours: 3600000, days: 86400000 }
-      schedule = {
-        kind: 'every',
-        everyMs: data.everyAmount * unitToMs[data.everyUnit]
-      }
-    } else if (data.scheduleKind === 'cron') {
-      schedule = {
-        kind: 'cron',
-        expr: data.cronExpr
-      }
-    }
-
-    // Build payload based on agentId
-    // main agent requires systemEvent, others use agentTurn
-    let payload: any
-    if (data.agentId === 'main') {
-      payload = {
-        kind: 'systemEvent',
-        text: data.message.trim()
-      }
-      // Optional fields for systemEvent
-      if (data.model) payload.model = data.model
-      if (data.thinking) payload.thinking = data.thinking
-      if (data.timeout) payload.timeoutSeconds = data.timeout
-      if (data.fallbacks) {
-        payload.fallbacks = data.fallbacks.split(',').map(s => s.trim()).filter(s => s)
-      }
-    } else {
-      payload = {
-        kind: 'agentTurn',
-        message: data.message.trim()
-      }
-      // Optional fields for agentTurn
-      if (data.model) payload.model = data.model
-      if (data.thinking) payload.thinking = data.thinking
-      if (data.timeout) payload.timeoutSeconds = data.timeout
-      if (data.fallbacks) {
-        payload.fallbacks = data.fallbacks.split(',').map(s => s.trim()).filter(s => s)
-      }
-      if (data.lightContext) payload.lightContext = true
-    }
-
-    const newJob = {
-      name: data.name,
-      description: data.description || undefined,
-      agentId: data.agentId,
-      enabled: data.enabled,
-      schedule: schedule,
-      sessionTarget: data.sessionTarget,
-      sessionKey: data.sessionKey || undefined,
-      wakeMode: data.wakeMode,
-      payload: payload,
-      deleteAfterRun: data.deleteAfterRun || undefined
-    }
-
-    const result = await window.electronAPI.addCronJob(newJob)
-
-    if (!result.success) {
-      throw new Error(result.error || '添加任务失败')
-    }
-
-    uiStore.showToast('任务添加成功', 'success')
-    await loadJobs()
-  } catch (error: any) {
-    console.error('Failed to add cron job:', error)
-    uiStore.showToast(error.message || '添加任务失败', 'error')
-  } finally {
-    loading.value = false
-  }
-}
-
-async function handleEditJob(jobId: string) {
-  const job = jobs.value.find(j => j.id === jobId)
-  if (!job) {
-    uiStore.showToast('任务不存在', 'error')
-    return
-  }
-
-  editingJobId.value = jobId
-  // 使用nextTick确保computed属性已更新后再显示对话框
-  await nextTick()
-  cronJobDialogRef.value?.show()
-}
-
-async function onEditJobConfirm(data: CronJobFormData) {
-  if (!editingJobId.value) return
-
-  try {
-    loading.value = true
-
-    // 获取原始job
-    const originalJob = jobs.value.find(j => j.id === editingJobId.value)
-    if (!originalJob) {
-      throw new Error('任务不存在')
-    }
-
-    // 如果agentId从main改为其他，或从其他改为main，需要删除后重建
-    const agentChanged = originalJob.agentId !== data.agentId
-
-    // Build schedule object based on kind
-    let schedule: any = {}
-    if (data.scheduleKind === 'every') {
-      const unitToMs = { minutes: 60000, hours: 3600000, days: 86400000 }
-      schedule = {
-        kind: 'every',
-        everyMs: data.everyAmount * unitToMs[data.everyUnit]
-      }
-    } else if (data.scheduleKind === 'cron') {
-      schedule = {
-        kind: 'cron',
-        expr: data.cronExpr
-      }
-    }
-
-    // Build payload based on agentId
-    let payload: any
-    if (data.agentId === 'main') {
-      payload = {
-        kind: 'systemEvent',
-        text: data.message.trim()
-      }
-      // Optional fields for systemEvent
-      if (data.model) payload.model = data.model
-      if (data.thinking) payload.thinking = data.thinking
-      if (data.timeout) payload.timeoutSeconds = data.timeout
-      if (data.fallbacks) {
-        payload.fallbacks = data.fallbacks.split(',').map(s => s.trim()).filter(s => s)
-      }
-    } else {
-      payload = {
-        kind: 'agentTurn',
-        message: data.message.trim()
-      }
-      // Optional fields for agentTurn
-      if (data.model) payload.model = data.model
-      if (data.thinking) payload.thinking = data.thinking
-      if (data.timeout) payload.timeoutSeconds = data.timeout
-      if (data.fallbacks) {
-        payload.fallbacks = data.fallbacks.split(',').map(s => s.trim()).filter(s => s)
-      }
-      if (data.lightContext) payload.lightContext = true
-    }
-
-    const jobData = {
-      name: data.name,
-      description: data.description || undefined,
-      agentId: data.agentId,
-      enabled: data.enabled,
-      schedule: schedule,
-      sessionTarget: data.sessionTarget,
-      sessionKey: data.sessionKey || undefined,
-      wakeMode: data.wakeMode,
-      payload: payload,
-      deleteAfterRun: data.deleteAfterRun || undefined
-    }
-
-    let result
-    if (agentChanged) {
-      // Agent改变，先删除再创建
-      const deleteResult = await window.electronAPI.removeCronJob(editingJobId.value)
-      if (!deleteResult.success) {
-        throw new Error(deleteResult.error || '删除原任务失败')
-      }
-
-      // 创建新job
-      result = await window.electronAPI.addCronJob(jobData)
-    } else {
-      // Agent未改变，使用正常更新
-      result = await window.electronAPI.updateCronJob(editingJobId.value, jobData)
-    }
-
-    if (!result.success) {
-      throw new Error(result.error || '更新任务失败')
-    }
-
-    uiStore.showToast('任务更新成功', 'success')
-    await loadJobs()
-  } catch (error: any) {
-    console.error('Failed to update cron job:', error)
-    uiStore.showToast(error.message || '更新任务失败', 'error')
-  } finally {
-    loading.value = false
-    editingJobId.value = null
-  }
-}
-
-async function handleRunJob(jobId: string) {
-  try {
-    uiStore.showLoading('正在运行任务...')
-
-    const result = await window.electronAPI.runCronJob(jobId, 'force')
-
-    if (!result.success) {
-      throw new Error(result.error || '运行任务失败')
-    }
-
-    uiStore.showToast('任务运行成功', 'success')
-    await loadJobs()
-  } catch (error: any) {
-    console.error('Failed to run cron job:', error)
-    uiStore.showToast(error.message || '运行任务失败', 'error')
-  } finally {
-    uiStore.hideLoading()
-  }
-}
-
-async function handleDeleteJob(jobId: string) {
-  const job = jobs.value.find(j => j.id === jobId)
-  if (!job) return
-
-  deletingJobId.value = jobId
-  confirmDialogRef.value?.show()
-}
-
-async function onDeleteConfirm() {
-  if (!deletingJobId.value) return
-
-  try {
-    uiStore.showLoading('正在删除任务...')
-
-    const result = await window.electronAPI.removeCronJob(deletingJobId.value)
-
-    if (!result.success) {
-      throw new Error(result.error || '删除任务失败')
-    }
-
-    jobs.value = jobs.value.filter(j => j.id !== deletingJobId.value)
-    uiStore.showToast('任务删除成功', 'success')
-  } catch (error: any) {
-    console.error('Failed to delete cron job:', error)
-    uiStore.showToast(error.message || '删除任务失败', 'error')
-  } finally {
-    uiStore.hideLoading()
-    deletingJobId.value = null
-  }
-}
-
-function formatSchedule(schedule: any): string {
-  if (!schedule) return '未设置'
-
-  if (schedule.kind === 'cron') {
-    return `Cron: ${schedule.expr}`
-  }
-
-  if (schedule.kind === 'every') {
-    const ms = schedule.everyMs || 0
-    if (ms % 86400000 === 0) {
-      return `每 ${ms / 86400000} 天`
-    } else if (ms % 3600000 === 0) {
-      return `每 ${ms / 3600000} 小时`
-    } else if (ms % 60000 === 0) {
-      return `每 ${ms / 60000} 分钟`
-    }
-    return `间隔: ${ms}ms`
-  }
-
-  if (schedule.cron) {
-    return `Cron: ${schedule.cron}`
-  }
-
-  if (schedule.interval) {
-    return `间隔: ${schedule.interval}`
-  }
-
-  return JSON.stringify(schedule)
 }
 </script>
 

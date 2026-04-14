@@ -1,95 +1,100 @@
 <template>
-  <Teleport to="body">
-    <Transition name="dialog">
-      <div v-if="open" class="dialog-overlay" @click="handleCancel">
-        <div class="dialog" @click.stop>
-          <h3>{{ title }}</h3>
-          <p v-if="message">{{ message }}</p>
-          <div class="dialog-input-wrapper">
-            <input
-              ref="inputRef"
-              v-model="inputValue"
-              type="text"
-              class="dialog-input"
-              :placeholder="placeholder"
-              @keyup.enter="handleConfirm"
-              @keyup.esc="handleCancel"
-            />
-          </div>
-          <div class="dialog-buttons">
-            <button class="btn btn-secondary" @click="handleCancel">
-              {{ cancelText }}
-            </button>
-            <button class="btn btn-primary" @click="handleConfirm" :disabled="!inputValue.trim()">
-              {{ confirmText }}
-            </button>
-          </div>
+  <transition name="dialog">
+    <div v-if="open" class="dialog-overlay" @click="handleCancel">
+      <div class="dialog" @click.stop>
+        <h3>{{ title }}</h3>
+        <p v-if="message">{{ message }}</p>
+        <div class="dialog-input-wrapper">
+          <input
+            ref="inputRef"
+            v-model="inputValue"
+            type="text"
+            class="dialog-input"
+            :placeholder="placeholder"
+            @keyup.enter="handleConfirm"
+            @keyup.esc="handleCancel"
+          />
+        </div>
+        <div class="dialog-buttons">
+          <button class="btn btn-secondary" @click="handleCancel">
+            {{ cancelText }}
+          </button>
+          <button class="btn btn-primary" @click="handleConfirm" :disabled="!inputValue.trim()">
+            {{ confirmText }}
+          </button>
         </div>
       </div>
-    </Transition>
-  </Teleport>
+    </div>
+  </transition>
 </template>
 
-<script setup lang="ts">
-import { ref, nextTick } from 'vue'
+<script lang="ts">
+export default {
+  name: 'PromptDialog',
 
-interface Props {
-  title?: string
-  message?: string
-  placeholder?: string
-  defaultValue?: string
-  confirmText?: string
-  cancelText?: string
+  props: {
+    title: {
+      type: String,
+      default: '请输入'
+    },
+    message: {
+      type: String,
+      default: ''
+    },
+    placeholder: {
+      type: String,
+      default: ''
+    },
+    defaultValue: {
+      type: String,
+      default: ''
+    },
+    confirmText: {
+      type: String,
+      default: '确定'
+    },
+    cancelText: {
+      type: String,
+      default: '取消'
+    }
+  },
+
+  data() {
+    return {
+      open: false,
+      inputValue: ''
+    }
+  },
+
+  methods: {
+    show() {
+      this.inputValue = this.defaultValue || ''
+      this.open = true
+      // 自动聚焦输入框
+      this.$nextTick(() => {
+        const inputRef = this.$refs.inputRef as HTMLInputElement
+        inputRef?.focus()
+        inputRef?.select()
+      })
+    },
+
+    hide() {
+      this.open = false
+    },
+
+    handleConfirm() {
+      const value = this.inputValue.trim()
+      if (!value) return
+      this.hide()
+      this.$emit('confirm', value)
+    },
+
+    handleCancel() {
+      this.hide()
+      this.$emit('cancel')
+    }
+  }
 }
-
-const props = withDefaults(defineProps<Props>(), {
-  title: '请输入',
-  message: '',
-  placeholder: '',
-  defaultValue: '',
-  confirmText: '确定',
-  cancelText: '取消'
-})
-
-const emit = defineEmits<{
-  confirm: [value: string]
-  cancel: []
-}>()
-
-const open = ref(false)
-const inputValue = ref('')
-const inputRef = ref<HTMLInputElement | null>(null)
-
-function show() {
-  inputValue.value = props.defaultValue || ''
-  open.value = true
-  // 自动聚焦输入框
-  nextTick(() => {
-    inputRef.value?.focus()
-    inputRef.value?.select()
-  })
-}
-
-function hide() {
-  open.value = false
-}
-
-function handleConfirm() {
-  const value = inputValue.value.trim()
-  if (!value) return
-  hide()
-  emit('confirm', value)
-}
-
-function handleCancel() {
-  hide()
-  emit('cancel')
-}
-
-defineExpose({
-  show,
-  hide
-})
 </script>
 
 <style scoped>

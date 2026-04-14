@@ -1,42 +1,38 @@
 <template>
-  <Teleport to="body">
-    <Transition name="dialog">
-      <div v-if="open" class="dialog-overlay" @click="handleClose">
-        <div class="dialog" @click.stop>
-          <div class="dialog-header">
-            <h3 class="dialog-title">设置</h3>
-            <button class="dialog-close-btn" @click="handleClose">×</button>
-          </div>
+  <transition name="dialog">
+    <div v-if="open" class="dialog-overlay" @click="handleClose">
+      <div class="dialog" @click.stop>
+        <div class="dialog-header">
+          <h3 class="dialog-title">设置</h3>
+          <button class="dialog-close-btn" @click="handleClose">×</button>
+        </div>
 
-          <div class="dialog-nav">
-            <div
-              v-for="tab in tabs"
-              :key="tab.key"
-              class="tabs-trigger"
-              :class="{ active: activeTab === tab.key }"
-              @click="switchTab(tab.key)"
-            >
-              <span class="text-base">{{ tab.icon }}</span>
-              <span class="text-sm font-medium">{{ tab.label }}</span>
-            </div>
-          </div>
-
-          <div class="dialog-content custom-scrollbar">
-            <SessionsPanel v-if="activeTab === 'sessions'" />
-            <CronPanel v-else-if="activeTab === 'cron'" />
-            <ConfigPanel v-else-if="activeTab === 'config'" />
-            <LogsPanel v-else-if="activeTab === 'logs'" />
+        <div class="dialog-nav">
+          <div
+            v-for="tab in tabs"
+            :key="tab.key"
+            class="tabs-trigger"
+            :class="{ active: activeTab === tab.key }"
+            @click="switchTab(tab.key)"
+          >
+            <span class="text-base">{{ tab.icon }}</span>
+            <span class="text-sm font-medium">{{ tab.label }}</span>
           </div>
         </div>
+
+        <div class="dialog-content custom-scrollbar">
+          <SessionsPanel v-if="activeTab === 'sessions'" />
+          <CronPanel v-else-if="activeTab === 'cron'" />
+          <ConfigPanel v-else-if="activeTab === 'config'" />
+          <LogsPanel v-else-if="activeTab === 'logs'" />
+        </div>
       </div>
-    </Transition>
-  </Teleport>
+    </div>
+  </transition>
 </template>
 
-<script setup lang="ts">
-import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useUiStore } from '@/stores'
+<script lang="ts">
+import { mapState, mapActions } from 'vuex'
 
 // 占位组件 - 后续实现
 import SessionsPanel from './SessionsPanel.vue'
@@ -44,22 +40,43 @@ import CronPanel from './CronPanel.vue'
 import ConfigPanel from './ConfigPanel.vue'
 import LogsPanel from './LogsPanel.vue'
 
-const uiStore = useUiStore()
-const { settingsDialogOpen: open, settingsActiveTab: activeTab } = storeToRefs(uiStore)
+export default {
+  name: 'SettingsDialog',
 
-const tabs = [
-  { key: 'sessions', icon: '📋', label: '对话列表' },
-  { key: 'cron', icon: '⏰', label: '定时任务' },
-  { key: 'config', icon: '⚙️', label: '配置' },
-  { key: 'logs', icon: '📝', label: '日志' }
-]
+  components: {
+    SessionsPanel,
+    CronPanel,
+    ConfigPanel,
+    LogsPanel
+  },
 
-function handleClose() {
-  uiStore.closeSettings()
-}
+  computed: {
+    ...mapState('ui', {
+      open: 'settingsDialogOpen',
+      activeTab: 'settingsActiveTab'
+    }),
 
-function switchTab(key: string) {
-  uiStore.switchSettingsTab(key)
+    tabs() {
+      return [
+        { key: 'sessions', icon: '📋', label: '对话列表' },
+        { key: 'cron', icon: '⏰', label: '定时任务' },
+        { key: 'config', icon: '⚙️', label: '配置' },
+        { key: 'logs', icon: '📝', label: '日志' }
+      ]
+    }
+  },
+
+  methods: {
+    ...mapActions('ui', ['closeSettings', 'switchSettingsTab']),
+
+    handleClose() {
+      this.closeSettings()
+    },
+
+    switchTab(key: string) {
+      this.switchSettingsTab(key)
+    }
+  }
 }
 </script>
 

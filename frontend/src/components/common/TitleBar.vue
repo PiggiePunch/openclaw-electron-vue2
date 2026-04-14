@@ -29,22 +29,28 @@
   </div>
 </template>
 
-<script setup lang="ts">
-function minimize() {
-  if (window.electronAPI?.minimizeWindow) {
-    window.electronAPI.minimizeWindow()
-  }
-}
+<script lang="ts">
+export default {
+  name: 'TitleBar',
 
-function maximize() {
-  if (window.electronAPI?.maximizeWindow) {
-    window.electronAPI.maximizeWindow()
-  }
-}
+  methods: {
+    minimize() {
+      if ((window as any).electronAPI?.minimizeWindow) {
+        (window as any).electronAPI.minimizeWindow()
+      }
+    },
 
-function close() {
-  if (window.electronAPI?.closeWindow) {
-    window.electronAPI.closeWindow()
+    maximize() {
+      if ((window as any).electronAPI?.maximizeWindow) {
+        (window as any).electronAPI.maximizeWindow()
+      }
+    },
+
+    close() {
+      if ((window as any).electronAPI?.closeWindow) {
+        (window as any).electronAPI.closeWindow()
+      }
+    }
   }
 }
 </script>

@@ -1,9 +1,8 @@
 <template>
-  <Teleport to="body">
-    <Transition name="dialog">
-      <div v-if="open" class="dialog-overlay" @click="handleCancel">
-        <div class="dialog" @click.stop>
-          <h3>{{ isEdit ? '编辑定时任务' : '添加定时任务' }}</h3>
+  <transition name="dialog">
+    <div v-if="open" class="dialog-overlay" @click="handleCancel">
+      <div class="dialog" @click.stop>
+        <h3>{{ isEdit ? '编辑定时任务' : '添加定时任务' }}</h3>
 
           <div class="dialog-content">
             <!-- 基本信息 -->
@@ -48,43 +47,39 @@
             <!-- 调度设置 -->
             <div class="form-section">
               <h4>调度设置</h4>
-              <div class="form-group">
-                <label>调度类型 *</label>
-                <select v-model="form.scheduleKind" class="dialog-select">
-                  <option value="every">间隔执行</option>
-                  <option value="cron">Cron表达式</option>
+              <div class="form-group checkbox-group">
+                <label>
+                  <input v-model="form.scheduleKind" type="radio" value="every" />
+                  间隔执行
+                </label>
+              </div>
+              <div v-if="form.scheduleKind === 'every'" class="interval-inputs">
+                <input
+                  v-model.number="form.everyAmount"
+                  type="number"
+                  class="dialog-input"
+                  min="1"
+                />
+                <select v-model="form.everyUnit" class="dialog-select">
+                  <option value="minutes">分钟</option>
+                  <option value="hours">小时</option>
+                  <option value="days">天</option>
                 </select>
               </div>
-
-              <!-- 间隔执行 -->
-              <div v-if="form.scheduleKind === 'every'" class="form-group">
-                <label>执行间隔 *</label>
-                <div class="interval-inputs">
-                  <input
-                    v-model.number="form.everyAmount"
-                    type="number"
-                    class="dialog-input"
-                    min="1"
-                    placeholder="1"
-                  />
-                  <select v-model="form.everyUnit" class="dialog-select">
-                    <option value="minutes">分钟</option>
-                    <option value="hours">小时</option>
-                    <option value="days">天</option>
-                  </select>
-                </div>
+              <div class="form-group checkbox-group">
+                <label>
+                  <input v-model="form.scheduleKind" type="radio" value="cron" />
+                  Cron表达式
+                </label>
               </div>
-
-              <!-- Cron表达式 -->
               <div v-if="form.scheduleKind === 'cron'" class="form-group">
-                <label>Cron表达式 *</label>
                 <input
                   v-model="form.cronExpr"
                   type="text"
                   class="dialog-input"
                   placeholder="0 9 * * *"
                 />
-                <span class="form-hint">格式：分 时 日 月 周</span>
+                <span class="form-hint">标准cron表达式，例如：0 9 * * * 表示每天9点</span>
               </div>
             </div>
 
@@ -199,12 +194,11 @@
           </div>
         </div>
       </div>
-    </Transition>
-  </Teleport>
+    </transition>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue'
+<script lang="ts">
+import { PropType } from 'vue'
 
 export interface CronJobFormData {
   name: string
@@ -232,172 +226,185 @@ interface Agent {
   name?: string
 }
 
-interface Props {
-  isEdit?: boolean
-  existingJob?: any
-  agents?: Agent[]
-  confirmText?: string
-  cancelText?: string
-}
+export default {
+  name: 'CronJobDialog',
 
-const props = withDefaults(defineProps<Props>(), {
-  isEdit: false,
-  existingJob: null,
-  agents: () => [],
-  confirmText: '确定',
-  cancelText: '取消'
-})
-
-const emit = defineEmits<{
-  confirm: [data: CronJobFormData]
-  cancel: []
-}>()
-
-const open = ref(false)
-
-const defaultForm: CronJobFormData = {
-  name: '',
-  description: '',
-  agentId: 'main',
-  enabled: true,
-  scheduleKind: 'every',
-  everyAmount: 1,
-  everyUnit: 'hours',
-  cronExpr: '0 9 * * *',
-  message: '',
-  sessionTarget: 'main',
-  sessionKey: '',
-  wakeMode: 'next-heartbeat',
-  model: '',
-  thinking: '',
-  timeout: 0,
-  fallbacks: '',
-  lightContext: false,
-  deleteAfterRun: false
-}
-
-const form = ref<CronJobFormData>({ ...defaultForm })
-
-const isValid = computed(() => {
-  return form.value.name.trim() &&
-         form.value.message.trim() &&
-         (form.value.scheduleKind === 'every'
-           ? (form.value.everyAmount > 0)
-           : form.value.cronExpr.trim())
-})
-
-// 监听agentId变化，如果是main则清空某些字段，并设置正确的sessionTarget
-watch(() => form.value.agentId, (newAgentId) => {
-  if (newAgentId === 'main') {
-    // main agent使用systemEvent，清空agentTurn相关字段
-    form.value.model = ''
-    form.value.thinking = ''
-    form.value.timeout = 0
-    form.value.fallbacks = ''
-    form.value.lightContext = false
-    // main agent使用main sessionTarget
-    if (form.value.sessionTarget === 'isolated') {
-      form.value.sessionTarget = 'main'
+  props: {
+    isEdit: {
+      type: Boolean as PropType<boolean>,
+      default: false
+    },
+    existingJob: {
+      type: Object as PropType<any>,
+      default: null
+    },
+    agents: {
+      type: Array as PropType<Agent[]>,
+      default: () => []
+    },
+    confirmText: {
+      type: String as PropType<string>,
+      default: '确定'
+    },
+    cancelText: {
+      type: String as PropType<string>,
+      default: '取消'
     }
-  } else {
-    // 非main agent使用isolated sessionTarget
-    form.value.sessionTarget = 'isolated'
-  }
-})
+  },
 
-function handleAgentChange() {
-  // Agent change handled by watch
-}
-
-function show() {
-  if (props.existingJob) {
-    // 从现有任务加载数据
-    form.value = {
-      name: props.existingJob.name || '',
-      description: props.existingJob.description || '',
-      agentId: props.existingJob.agentId || 'main',
-      enabled: props.existingJob.enabled !== undefined ? props.existingJob.enabled : true,
+  data() {
+    const defaultForm: CronJobFormData = {
+      name: '',
+      description: '',
+      agentId: 'main',
+      enabled: true,
       scheduleKind: 'every',
       everyAmount: 1,
       everyUnit: 'hours',
       cronExpr: '0 9 * * *',
       message: '',
-      sessionTarget: props.existingJob.sessionTarget || 'main',
-      sessionKey: props.existingJob.sessionKey || '',
-      wakeMode: props.existingJob.wakeMode || 'next-heartbeat',
+      sessionTarget: 'main',
+      sessionKey: '',
+      wakeMode: 'next-heartbeat',
       model: '',
       thinking: '',
       timeout: 0,
       fallbacks: '',
       lightContext: false,
-      deleteAfterRun: props.existingJob.deleteAfterRun || false
+      deleteAfterRun: false
     }
 
-    // 处理payload
-    if (props.existingJob.payload) {
-      if (props.existingJob.payload.kind === 'systemEvent') {
-        form.value.message = props.existingJob.payload.text || ''
-        form.value.model = props.existingJob.payload.model || ''
-        form.value.thinking = props.existingJob.payload.thinking || ''
-        form.value.timeout = props.existingJob.payload.timeoutSeconds || 0
-        form.value.fallbacks = props.existingJob.payload.fallbacks?.join(', ') || ''
-      } else if (props.existingJob.payload.kind === 'agentTurn') {
-        form.value.message = props.existingJob.payload.message || ''
-        form.value.model = props.existingJob.payload.model || ''
-        form.value.thinking = props.existingJob.payload.thinking || ''
-        form.value.timeout = props.existingJob.payload.timeoutSeconds || 0
-        form.value.fallbacks = props.existingJob.payload.fallbacks?.join(', ') || ''
-        form.value.lightContext = props.existingJob.payload.lightContext || false
-      }
+    return {
+      open: false,
+      form: { ...defaultForm }
     }
+  },
 
-    // 处理调度
-    if (props.existingJob.schedule) {
-      form.value.scheduleKind = props.existingJob.schedule.kind || 'every'
+  computed: {
+    isEdit(): boolean {
+      return this.isEdit
+    },
 
-      if (props.existingJob.schedule.kind === 'every') {
-        const ms = props.existingJob.schedule.everyMs || 0
-        if (ms % 86400000 === 0) {
-          form.value.everyAmount = ms / 86400000
-          form.value.everyUnit = 'days'
-        } else if (ms % 3600000 === 0) {
-          form.value.everyAmount = ms / 3600000
-          form.value.everyUnit = 'hours'
-        } else {
-          form.value.everyAmount = ms / 60000
-          form.value.everyUnit = 'minutes'
+    isValid(): boolean {
+      return this.form.name.trim() &&
+             this.form.message.trim() &&
+             (this.form.scheduleKind === 'every'
+               ? (this.form.everyAmount > 0)
+               : this.form.cronExpr.trim())
+    }
+  },
+
+  methods: {
+    show() {
+      if (this.existingJob) {
+        // 从现有任务加载数据
+        this.form = {
+          name: this.existingJob.name || '',
+          description: this.existingJob.description || '',
+          agentId: this.existingJob.agentId || 'main',
+          enabled: this.existingJob.enabled !== undefined ? this.existingJob.enabled : true,
+          scheduleKind: 'every',
+          everyAmount: 1,
+          everyUnit: 'hours',
+          cronExpr: '0 9 * * *',
+          message: '',
+          sessionTarget: this.existingJob.sessionTarget || 'main',
+          sessionKey: this.existingJob.sessionKey || '',
+          wakeMode: this.existingJob.wakeMode || 'next-heartbeat',
+          model: '',
+          thinking: '',
+          timeout: 0,
+          fallbacks: '',
+          lightContext: false,
+          deleteAfterRun: this.existingJob.deleteAfterRun || false
         }
-      } else if (props.existingJob.schedule.kind === 'cron') {
-        form.value.cronExpr = props.existingJob.schedule.expr || '0 9 * * *'
+
+        // 处理payload
+        if (this.existingJob.payload) {
+          if (this.existingJob.payload.kind === 'systemEvent') {
+            this.form.message = this.existingJob.payload.text || ''
+            this.form.model = this.existingJob.payload.model || ''
+            this.form.thinking = this.existingJob.payload.thinking || ''
+            this.form.timeout = this.existingJob.payload.timeoutSeconds || 0
+            this.form.fallbacks = this.existingJob.payload.fallbacks?.join(', ') || ''
+          } else if (this.existingJob.payload.kind === 'agentTurn') {
+            this.form.message = this.existingJob.payload.message || ''
+            this.form.model = this.existingJob.payload.model || ''
+            this.form.thinking = this.existingJob.payload.thinking || ''
+            this.form.timeout = this.existingJob.payload.timeoutSeconds || 0
+            this.form.fallbacks = this.existingJob.payload.fallbacks?.join(', ') || ''
+            this.form.lightContext = this.existingJob.payload.lightContext || false
+          }
+        }
+
+        // 处理调度
+        if (this.existingJob.schedule) {
+          this.form.scheduleKind = this.existingJob.schedule.kind || 'every'
+
+          if (this.existingJob.schedule.kind === 'every') {
+            const ms = this.existingJob.schedule.everyMs || 0
+            if (ms % 86400000 === 0) {
+              this.form.everyAmount = ms / 86400000
+              this.form.everyUnit = 'days'
+            } else if (ms % 3600000 === 0) {
+              this.form.everyAmount = ms / 3600000
+              this.form.everyUnit = 'hours'
+            } else {
+              this.form.everyAmount = ms / 60000
+              this.form.everyUnit = 'minutes'
+            }
+          } else if (this.existingJob.schedule.kind === 'cron') {
+            this.form.cronExpr = this.existingJob.schedule.expr || '0 9 * * *'
+          }
+        }
+      } else {
+        this.form = { ...defaultForm }
+      }
+
+      this.open = true
+    },
+
+    hide() {
+      this.open = false
+    },
+
+    handleConfirm() {
+      if (!this.isValid) return
+
+      this.hide()
+      this.$emit('confirm', { ...this.form })
+    },
+
+    handleCancel() {
+      this.hide()
+      this.$emit('cancel')
+    },
+
+    handleAgentChange() {
+      // Agent change handled by watch
+    }
+  },
+
+  watch: {
+    'form.agentId': function(newAgentId: string) {
+      if (newAgentId === 'main') {
+        // main agent使用systemEvent，清空agentTurn相关字段
+        this.form.model = ''
+        this.form.thinking = ''
+        this.form.timeout = 0
+        this.form.fallbacks = ''
+        this.form.lightContext = false
+        // main agent使用main sessionTarget
+        if (this.form.sessionTarget === 'isolated') {
+          this.form.sessionTarget = 'main'
+        }
+      } else {
+        // 非main agent使用isolated sessionTarget
+        this.form.sessionTarget = 'isolated'
       }
     }
-  } else {
-    form.value = { ...defaultForm }
   }
-
-  open.value = true
 }
-
-function hide() {
-  open.value = false
-}
-
-function handleConfirm() {
-  if (!isValid.value) return
-
-  hide()
-  emit('confirm', { ...form.value })
-}
-
-function handleCancel() {
-  hide()
-  emit('cancel')
-}
-
-defineExpose({
-  show,
-  hide
-})
 </script>
 
 <style scoped>
@@ -478,7 +485,8 @@ defineExpose({
   cursor: pointer;
 }
 
-.checkbox-group input[type="checkbox"] {
+.checkbox-group input[type="checkbox"],
+.checkbox-group input[type="radio"] {
   cursor: pointer;
 }
 

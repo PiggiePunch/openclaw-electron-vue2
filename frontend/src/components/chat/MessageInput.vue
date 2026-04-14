@@ -35,87 +35,97 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue'
+<script lang="ts">
+import { PropType } from 'vue'
 
-interface Props {
-  disabled?: boolean
-  placeholder?: string
-  canAbort?: boolean
-  isSending?: boolean
-}
+export default {
+  name: 'MessageInput',
 
-const props = withDefaults(defineProps<Props>(), {
-  disabled: true,
-  placeholder: '选择或创建一个会话后开始聊天 (Ctrl+Enter 发送)',
-  canAbort: false,
-  isSending: false
-})
+  props: {
+    disabled: {
+      type: Boolean as PropType<boolean>,
+      default: true
+    },
+    placeholder: {
+      type: String as PropType<string>,
+      default: '选择或创建一个会话后开始聊天 (Ctrl+Enter 发送)'
+    },
+    canAbort: {
+      type: Boolean as PropType<boolean>,
+      default: false
+    },
+    isSending: {
+      type: Boolean as PropType<boolean>,
+      default: false
+    }
+  },
 
-const emit = defineEmits<{
-  send: [message: string]
-  abort: []
-}>()
+  data() {
+    return {
+      messageText: ''
+    }
+  },
 
-const messageText = ref('')
-const textareaRef = ref<HTMLTextAreaElement>()
+  computed: {
+    canSend(): boolean {
+      return !this.disabled && !this.isSending && this.messageText.trim().length > 0
+    }
+  },
 
-const canSend = computed(() => {
-  return !props.disabled && !props.isSending && messageText.value.trim().length > 0
-})
+  methods: {
+    handleInput() {
+      // 自动调整高度
+      const textareaRef = this.$refs.textareaRef as HTMLTextAreaElement
+      if (textareaRef) {
+        textareaRef.style.height = 'auto'
+        textareaRef.style.height = textareaRef.scrollHeight + 'px'
+      }
+    },
 
-function handleInput() {
-  // 自动调整高度
-  if (textareaRef.value) {
-    textareaRef.value.style.height = 'auto'
-    textareaRef.value.style.height = textareaRef.value.scrollHeight + 'px'
-  }
-}
+    handleKeydown(event: KeyboardEvent) {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault()
+        this.handleSend()
+      }
+    },
 
-function handleKeydown(event: KeyboardEvent) {
-  if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
-    event.preventDefault()
-    handleSend()
-  }
-}
+    handleSend() {
+      if (!this.canSend) return
 
-function handleSend() {
-  if (!canSend.value) return
+      const message = this.messageText.trim()
+      if (message) {
+        this.$emit('send', message)
+        this.messageText = ''
 
-  const message = messageText.value.trim()
-  if (message) {
-    emit('send', message)
-    messageText.value = ''
+        // 重置高度
+        const textareaRef = this.$refs.textareaRef as HTMLTextAreaElement
+        if (textareaRef) {
+          textareaRef.style.height = 'auto'
+        }
+      }
+    },
 
-    // 重置高度
-    if (textareaRef.value) {
-      textareaRef.value.style.height = 'auto'
+    handleAbort() {
+      if (!this.canAbort) return
+      this.$emit('abort')
+    },
+
+    focus() {
+      this.$nextTick(() => {
+        const textareaRef = this.$refs.textareaRef as HTMLTextAreaElement
+        textareaRef?.focus()
+      })
+    }
+  },
+
+  watch: {
+    disabled(newVal: boolean, oldVal: boolean) {
+      if (oldVal && !newVal) {
+        this.focus()
+      }
     }
   }
 }
-
-function handleAbort() {
-  if (!props.canAbort) return
-  emit('abort')
-}
-
-// 暴露 focus 方法
-function focus() {
-  nextTick(() => {
-    textareaRef.value?.focus()
-  })
-}
-
-defineExpose({
-  focus
-})
-
-// 监听 disabled 变化，自动 focus
-watch(() => props.disabled, (newVal, oldVal) => {
-  if (oldVal && !newVal) {
-    focus()
-  }
-})
 </script>
 
 <style scoped>

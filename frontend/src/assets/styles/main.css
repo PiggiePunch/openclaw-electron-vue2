@@ -1,5 +1,7 @@
-/* Custom Styles - Tailwind CSS v4 compatible */
-@import "tailwindcss";
+/* Custom Styles - Tailwind CSS v3 compatible */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 /* 强制使用微软雅黑字体 */
 * {

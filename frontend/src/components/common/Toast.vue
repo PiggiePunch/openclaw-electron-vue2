@@ -1,36 +1,39 @@
 <template>
-  <Teleport to="body">
-    <div class="toast-container">
-      <TransitionGroup name="toast">
-        <div
-          v-for="toast in toasts"
-          :key="toast.id"
-          :class="['toast', `toast-${toast.type}`]"
-        >
-          <span class="toast-icon">{{ getIcon(toast.type) }}</span>
-          <span class="toast-message">{{ toast.message }}</span>
-        </div>
-      </TransitionGroup>
-    </div>
-  </Teleport>
+  <div class="toast-container">
+    <transition-group name="toast">
+      <div
+        v-for="toast in toasts"
+        :key="toast.id"
+        :class="['toast', `toast-${toast.type}`]"
+      >
+        <span class="toast-icon">{{ getIcon(toast.type) }}</span>
+        <span class="toast-message">{{ toast.message }}</span>
+      </div>
+    </transition-group>
+  </div>
 </template>
 
-<script setup lang="ts">
-import { computed } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useUiStore } from '@/stores'
+<script lang="ts">
+import { mapState } from 'vuex'
 
-const uiStore = useUiStore()
-const { toasts } = storeToRefs(uiStore)
+export default {
+  name: 'Toast',
 
-function getIcon(type: string): string {
-  const icons: Record<string, string> = {
-    info: 'ℹ️',
-    success: '✅',
-    warning: '⚠️',
-    error: '❌'
+  computed: {
+    ...mapState('ui', ['toasts'])
+  },
+
+  methods: {
+    getIcon(type: string): string {
+      const icons: Record<string, string> = {
+        info: 'ℹ️',
+        success: '✅',
+        warning: '⚠️',
+        error: '❌'
+      }
+      return icons[type] || icons.info
+    }
   }
-  return icons[type] || icons.info
 }
 </script>
 

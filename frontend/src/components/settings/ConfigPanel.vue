@@ -57,164 +57,188 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useConfigStore, useGatewayStore, useUiStore, useChatStore } from '@/stores'
+<script lang="ts">
+import { mapState, mapActions } from 'vuex'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
-const configStore = useConfigStore()
-const gatewayStore = useGatewayStore()
-const uiStore = useUiStore()
-const chatStore = useChatStore()
+export default {
+  name: 'ConfigPanel',
 
-const { gateway } = storeToRefs(configStore)
-const { connected } = storeToRefs(gatewayStore)
+  components: {
+    ConfirmDialog
+  },
 
-const localConfig = reactive({
-  url: gateway.value.url,
-  token: gateway.value.token || '',
-  password: gateway.value.password || ''
-})
-
-const status = ref<{ type: 'success' | 'error' | 'info'; message: string } | null>(null)
-const confirmDialogRef = ref<InstanceType<typeof ConfirmDialog> | null>(null)
-
-// Store pending config for reconnection
-const pendingConfig = ref<any>(null)
-
-function showConfigStatus(message: string, type: 'success' | 'error' | 'info') {
-  status.value = { type, message }
-}
-
-async function handleTestConnection() {
-  const config = {
-    url: localConfig.url,
-    token: localConfig.token || '',
-    password: localConfig.password || ''
-  }
-
-  if (!config.url) {
-    showConfigStatus('请输入 Gateway URL', 'error')
-    return
-  }
-
-  // 检查是否已经连接
-  if (gatewayStore.connected) {
-    const currentGateway = configStore.gateway
-    const configChanged =
-      config.url !== currentGateway.url ||
-      config.token !== currentGateway.token ||
-      config.password !== currentGateway.password
-
-    if (!configChanged) {
-      showConfigStatus('✅ 已经使用这些设置连接！', 'success')
-      return
+  data() {
+    return {
+      localConfig: {
+        url: '',
+        token: '',
+        password: ''
+      },
+      status: null as { type: 'success' | 'error' | 'info'; message: string } | null,
+      pendingConfig: null as any
     }
+  },
 
-    // Store config and show dialog
-    pendingConfig.value = config
-    confirmDialogRef.value?.show()
-    return
-  }
+  computed: {
+    ...mapState('config', ['gateway']),
+    ...mapState('gateway', ['connected'])
+  },
 
-  await doTestConnection(config)
-}
-
-async function onConfirmReconnect() {
-  if (pendingConfig.value) {
-    await doTestConnection(pendingConfig.value)
-    pendingConfig.value = null
-  }
-}
-
-async function doTestConnection(config: any) {
-  showConfigStatus('正在测试连接...', 'info')
-
-  try {
-    // 测试连接
-    const result = await window.electronAPI.connectGateway(config)
-
-    if (result.success) {
-      // 更新配置
-      await configStore.updateGateway(config)
-
-      showConfigStatus('✅ 连接测试成功！', 'success')
-      uiStore.showToast('连接成功', 'success')
-
-      // 加载会话列表
-      const chatStore = useChatStore()
-      try {
-        await chatStore.loadSessions()
-      } catch (error: any) {
-        console.error('Failed to load sessions:', error)
+  watch: {
+    gateway: {
+      immediate: true,
+      handler(newGateway) {
+        if (newGateway) {
+          this.localConfig = {
+            url: newGateway.url,
+            token: newGateway.token || '',
+            password: newGateway.password || ''
+          }
+        }
       }
-    } else {
-      showConfigStatus(`❌ 连接失败: ${result.error}`, 'error')
-      uiStore.showToast(result.error || '连接失败', 'error')
     }
-  } catch (error: any) {
-    showConfigStatus(`❌ 连接测试错误: ${error.message}`, 'error')
-    uiStore.showToast(error.message || '连接测试失败', 'error')
-  }
-}
+  },
 
-async function handleSaveAndConnect() {
-  const config = {
-    url: localConfig.url,
-    token: localConfig.token || '',
-    password: localConfig.password || ''
-  }
+  methods: {
+    ...mapActions('config', ['updateGateway']),
+    ...mapActions('gateway', ['connect']),
+    ...mapActions('ui', ['showToast']),
+    ...mapActions('chat', ['loadSessions']),
 
-  if (!config.url) {
-    showConfigStatus('请输入 Gateway URL', 'error')
-    return
-  }
+    showConfigStatus(message: string, type: 'success' | 'error' | 'info') {
+      this.status = { type, message }
+    },
 
-  // 检查是否已经连接
-  if (connected.value) {
-    const configChanged =
-      config.url !== gateway.value.url ||
-      config.token !== gateway.value.token ||
-      config.password !== gateway.value.password
-
-    if (!configChanged) {
-      showConfigStatus('✅ 已连接！配置已保存。', 'success')
-      return
-    }
-  }
-
-  showConfigStatus('正在保存配置...', 'info')
-
-  try {
-    // 先保存配置
-    const saved = await configStore.updateGateway(config)
-    if (!saved) {
-      throw new Error('保存配置失败')
-    }
-
-    showConfigStatus('正在连接...', 'info')
-
-    // 连接到 Gateway
-    const result = await window.electronAPI.connectGateway(config)
-
-    if (result.success) {
-      showConfigStatus('✅ 连接成功！', 'success')
-      uiStore.showToast('连接成功！', 'success')
-
-      // 加载会话列表
-      try {
-        await chatStore.loadSessions()
-      } catch (error: any) {
-        console.error('Failed to load sessions:', error)
+    async handleTestConnection() {
+      const config = {
+        url: this.localConfig.url,
+        token: this.localConfig.token || '',
+        password: this.localConfig.password || ''
       }
-    } else {
-      showConfigStatus(`❌ 连接失败: ${result.error}`, 'error')
-      uiStore.showToast(result.error || '连接失败', 'error')
+
+      if (!config.url) {
+        this.showConfigStatus('请输入 Gateway URL', 'error')
+        return
+      }
+
+      // 检查是否已经连接
+      if (this.connected) {
+        const configChanged =
+          config.url !== this.gateway.url ||
+          config.token !== this.gateway.token ||
+          config.password !== this.gateway.password
+
+        if (!configChanged) {
+          this.showConfigStatus('✅ 已经使用这些设置连接！', 'success')
+          return
+        }
+
+        // Store config and show dialog
+        this.pendingConfig = config
+        const confirmDialogRef = this.$refs.confirmDialogRef as any
+        confirmDialogRef?.show()
+        return
+      }
+
+      await this.doTestConnection(config)
+    },
+
+    async onConfirmReconnect() {
+      if (this.pendingConfig) {
+        await this.doTestConnection(this.pendingConfig)
+        this.pendingConfig = null
+      }
+    },
+
+    async doTestConnection(config: any) {
+      this.showConfigStatus('正在测试连接...', 'info')
+
+      try {
+        // 测试连接
+        const result = await (window as any).electronAPI.connectGateway(config)
+
+        if (result.success) {
+          // 更新配置
+          await this.updateGateway(config)
+
+          this.showConfigStatus('✅ 连接测试成功！', 'success')
+          this.showToast({ message: '连接成功', type: 'success' })
+
+          // 加载会话列表
+          try {
+            await this.loadSessions()
+          } catch (error: any) {
+            console.error('Failed to load sessions:', error)
+          }
+        } else {
+          this.showConfigStatus(`❌ 连接失败: ${result.error}`, 'error')
+          this.showToast({ message: result.error || '连接失败', type: 'error' })
+        }
+      } catch (error: any) {
+        this.showConfigStatus(`❌ 连接测试错误: ${error.message}`, 'error')
+        this.showToast({ message: error.message || '连接测试失败', type: 'error' })
+      }
+    },
+
+    async handleSaveAndConnect() {
+      const config = {
+        url: this.localConfig.url,
+        token: this.localConfig.token || '',
+        password: this.localConfig.password || ''
+      }
+
+      if (!config.url) {
+        this.showConfigStatus('请输入 Gateway URL', 'error')
+        return
+      }
+
+      // 检查是否已经连接
+      if (this.connected) {
+        const configChanged =
+          config.url !== this.gateway.url ||
+          config.token !== this.gateway.token ||
+          config.password !== this.gateway.password
+
+        if (!configChanged) {
+          this.showConfigStatus('✅ 已连接！配置已保存。', 'success')
+          return
+        }
+      }
+
+      this.showConfigStatus('正在保存配置...', 'info')
+
+      try {
+        // 先保存配置
+        const saved = await this.updateGateway(config)
+        if (!saved) {
+          throw new Error('保存配置失败')
+        }
+
+        this.showConfigStatus('正在连接...', 'info')
+
+        // 连接到 Gateway
+        const result = await (window as any).electronAPI.connectGateway(config)
+
+        if (result.success) {
+          this.showConfigStatus('✅ 连接成功！', 'success')
+          this.showToast({ message: '连接成功！', type: 'success' })
+
+          // 加载会话列表
+          try {
+            await this.loadSessions()
+          } catch (error: any) {
+            console.error('Failed to load sessions:', error)
+          }
+        } else {
+          this.showConfigStatus(`❌ 连接失败: ${result.error}`, 'error')
+          this.showToast({ message: result.error || '连接失败', type: 'error' })
+        }
+      } catch (error: any) {
+        this.showConfigStatus(`❌ 错误: ${error.message}`, 'error')
+        this.showToast({ message: error.message || '操作失败', type: 'error' })
+      }
     }
-  } catch (error: any) {
-    showConfigStatus(`❌ 错误: ${error.message}`, 'error')
-    uiStore.showToast(error.message || '操作失败', 'error')
   }
 }
 </script>

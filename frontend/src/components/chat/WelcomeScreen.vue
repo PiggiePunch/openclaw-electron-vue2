@@ -15,8 +15,10 @@
   </div>
 </template>
 
-<script setup lang="ts">
-// Welcome screen component - 无需额外逻辑
+<script lang="ts">
+export default {
+  name: 'WelcomeScreen'
+}
 </script>
 
 <style scoped>

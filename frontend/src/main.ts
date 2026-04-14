@@ -1,40 +1,33 @@
-/**
- * Vue 3 应用入口
- */
-
-import { createApp } from 'vue'
-import { createPinia } from 'pinia'
+import Vue from 'vue'
+import Vuex from 'vuex'
 import App from './App.vue'
+import store from './store'
 import './assets/styles/tailwind.css'
 
-// High DPI Fix
-(function() {
-  const dpr = window.devicePixelRatio || 1;
-  if (dpr >= 1.5) {
-    document.documentElement.setAttribute('data-dpr', dpr.toString());
-    if (document.body) {
-      (document.body.style as any).webkitFontSmoothing = 'antialiased';
-      (document.body.style as any).mozOsxFontSmoothing = 'grayscale';
-    }
+const dpr = window.devicePixelRatio || 1
+if (dpr >= 1.5) {
+  document.documentElement.setAttribute('data-dpr', dpr.toString())
+  if (document.body) {
+    ;(document.body as any).webkitFontSmoothing = 'antialiased'
+    ;(document.body as any).mozOsxFontSmoothing = 'grayscale'
   }
-})();
+}
 
-// 创建应用实例
-const app = createApp(App)
+Vue.use(Vuex)
 
-// 创建 Pinia 状态管理
-const pinia = createPinia()
-app.use(pinia)
+Vue.config.productionTip = false
+Vue.config.devtools = process.env.NODE_ENV !== 'production'
 
-// 挂载应用
-app.mount('#app')
+new Vue({
+  store,
+  render: h => h(App)
+}).$mount('#app')
 
-// 开发环境下调试信息
-if (import.meta.env?.DEV) {
+if (process.env.NODE_ENV === 'development') {
   console.log('=== VUE APP LOADED ===')
-  console.log('Vue version:', app.version)
-  console.log('Electron API available:', !!window.electronAPI)
-  if (window.electronAPI) {
-    console.log('Electron API methods:', Object.keys(window.electronAPI))
+  console.log('Vue version:', Vue.version)
+  console.log('Electron API available:', !!(window as any).electronAPI)
+  if ((window as any).electronAPI) {
+    console.log('Electron API methods:', Object.keys((window as any).electronAPI))
   }
 }

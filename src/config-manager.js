@@ -1,25 +1,8 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { app } from 'electron';
+const fs = require('fs');
+const path = require('path');
+const { app } = require('electron');
 
-export interface GatewayConnectionConfig {
-  url: string;
-  token?: string;
-  password?: string;
-}
-
-export interface AppConfig {
-  gateway: GatewayConnectionConfig;
-  lastSessionKey?: string;
-  windowBounds?: {
-    width: number;
-    height: number;
-    x?: number;
-    y?: number;
-  };
-}
-
-const DEFAULT_CONFIG: AppConfig = {
+const DEFAULT_CONFIG = {
   gateway: {
     url: 'ws://localhost:18789',
     token: '',
@@ -27,40 +10,34 @@ const DEFAULT_CONFIG: AppConfig = {
   },
 };
 
-export class ConfigManager {
-  private configPath: string;
-  private config: AppConfig;
-
+class ConfigManager {
   constructor() {
-    // Use Electron's app.getPath for userData directory
     const userDataPath = app.getPath('userData');
     this.configPath = path.join(userDataPath, 'config.json');
-
     this.config = this.loadConfig();
   }
 
-  private loadConfig(): AppConfig {
+  loadConfig() {
     try {
       if (fs.existsSync(this.configPath)) {
         const data = fs.readFileSync(this.configPath, 'utf-8');
         const loaded = JSON.parse(data);
         return { ...DEFAULT_CONFIG, ...loaded };
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to load config, using defaults:', error.message);
     }
     return { ...DEFAULT_CONFIG };
   }
 
-  getConfig(): AppConfig {
+  getConfig() {
     return { ...this.config };
   }
 
-  saveConfig(config: Partial<AppConfig>): boolean {
+  saveConfig(config) {
     try {
       this.config = { ...this.config, ...config };
 
-      // Ensure directory exists
       const dir = path.dirname(this.configPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
@@ -68,23 +45,25 @@ export class ConfigManager {
 
       fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2));
       return true;
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to save config:', error.message);
       return false;
     }
   }
 
-  updateGatewayConfig(gatewayConfig: Partial<GatewayConnectionConfig>): boolean {
+  updateGatewayConfig(gatewayConfig) {
     return this.saveConfig({
       gateway: { ...this.config.gateway, ...gatewayConfig },
     });
   }
 
-  updateLastSessionKey(sessionKey: string): boolean {
+  updateLastSessionKey(sessionKey) {
     return this.saveConfig({ lastSessionKey: sessionKey });
   }
 
-  updateWindowBounds(bounds: { width: number; height: number; x?: number; y?: number }): boolean {
+  updateWindowBounds(bounds) {
     return this.saveConfig({ windowBounds: bounds });
   }
 }
+
+module.exports = { ConfigManager };

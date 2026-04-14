@@ -30,82 +30,99 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, watch, nextTick, computed } from 'vue'
+<script lang="ts">
+import { PropType } from 'vue'
 import type { Message } from '@/types'
 import MessageItem from './MessageItem.vue'
 
-interface Props {
-  messages: Message[]
-  loading?: boolean
-  thinkingMessageId?: string | null
-  streamingMessageId?: string | null
-}
+export default {
+  name: 'MessageList',
 
-const props = withDefaults(defineProps<Props>(), {
-  loading: false,
-  thinkingMessageId: null,
-  streamingMessageId: null
-})
+  components: {
+    MessageItem
+  },
 
-const containerRef = ref<HTMLElement>()
-const showThinking = computed(() => !!props.thinkingMessageId)
-
-// 检测用户是否手动滚动（距离底部超过150px）
-const isUserScrolledUp = computed(() => {
-  if (!containerRef.value) return false
-  const threshold = 150
-  return containerRef.value.scrollHeight - containerRef.value.scrollTop - containerRef.value.clientHeight > threshold
-})
-
-// 上一次的消息数量，用于检测新消息
-const previousMessageCount = ref(0)
-
-// 自动滚动到底部
-const scrollToBottom = (force = false) => {
-  nextTick(() => {
-    if (containerRef.value) {
-      // force=true时强制滚动（新消息、流式状态变化等）
-      // force=false时，只在用户没有向上滚动时才滚动
-      if (force || !isUserScrolledUp.value) {
-        containerRef.value.scrollTop = containerRef.value.scrollHeight
-      }
+  props: {
+    messages: {
+      type: Array as PropType<Message[]>,
+      default: () => []
+    },
+    loading: {
+      type: Boolean,
+      default: false
+    },
+    thinkingMessageId: {
+      type: String as PropType<string | null>,
+      default: null
+    },
+    streamingMessageId: {
+      type: String as PropType<string | null>,
+      default: null
     }
-  })
-}
+  },
 
-// 监听消息变化
-watch(() => props.messages, (newMessages, oldMessages) => {
-  const currentCount = newMessages.length
-  const previousCount = previousMessageCount.value
+  data() {
+    return {
+      previousMessageCount: 0
+    }
+  },
 
-  // 消息数量增加（新消息），强制滚动
-  if (currentCount > previousCount) {
-    console.log('📜 New message added, forcing scroll to bottom')
-    scrollToBottom(true)
-  } else if (currentCount === previousCount && props.streamingMessageId) {
-    // 消息数量未变但有流式消息，说明是内容更新
-    // 只在用户没有向上滚动时滚动
-    console.log('📜 Streaming content update, conditional scroll')
-    scrollToBottom(false)
+  computed: {
+    showThinking(): boolean {
+      return !!this.thinkingMessageId
+    },
+
+    isUserScrolledUp(): boolean {
+      const containerRef = this.$refs.containerRef as HTMLElement
+      if (!containerRef) return false
+      const threshold = 150
+      return containerRef.scrollHeight - containerRef.scrollTop - containerRef.clientHeight > threshold
+    }
+  },
+
+  methods: {
+    scrollToBottom(force = false) {
+      this.$nextTick(() => {
+        const containerRef = this.$refs.containerRef as HTMLElement
+        if (containerRef) {
+          // force=true时强制滚动（新消息、流式状态变化等）
+          // force=false时，只在用户没有向上滚动时才滚动
+          if (force || !this.isUserScrolledUp) {
+            containerRef.scrollTop = containerRef.scrollHeight
+          }
+        }
+      })
+    }
+  },
+
+  watch: {
+    messages(newMessages: Message[], oldMessages: Message[]) {
+      const currentCount = newMessages.length
+      const previousCount = this.previousMessageCount
+
+      // 消息数量增加（新消息），强制滚动
+      if (currentCount > previousCount) {
+        console.log('📜 New message added, forcing scroll to bottom')
+        this.scrollToBottom(true)
+      } else if (currentCount === previousCount && this.streamingMessageId) {
+        // 消息数量未变但有流式消息，说明是内容更新
+        // 只在用户没有向上滚动时滚动
+        console.log('📜 Streaming content update, conditional scroll')
+        this.scrollToBottom(false)
+      }
+
+      this.previousMessageCount = currentCount
+    },
+
+    streamingMessageId() {
+      this.scrollToBottom()
+    },
+
+    thinkingMessageId() {
+      this.scrollToBottom()
+    }
   }
-
-  previousMessageCount.value = currentCount
-}, { deep: true })
-
-// 监听流式消息ID变化
-watch(() => props.streamingMessageId, () => {
-  scrollToBottom()
-})
-
-// 监听思考状态变化
-watch(() => props.thinkingMessageId, () => {
-  scrollToBottom()
-})
-
-defineExpose({
-  scrollToBottom
-})
+}
 </script>
 
 <style scoped>

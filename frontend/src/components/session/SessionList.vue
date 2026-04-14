@@ -29,7 +29,7 @@
       </div>
     </div>
 
-    <Transition name="sessions">
+    <transition name="sessions">
       <div v-if="sessionsExpanded" class="sessions-list custom-scrollbar">
         <div v-if="sessions.length === 0" class="empty-state">
           <h3>暂无对话</h3>
@@ -43,101 +43,115 @@
           @click="handleSelectSession(session.key)"
         />
       </div>
-    </Transition>
+    </transition>
   </div>
 </template>
 
-<script setup lang="ts">
-import { computed, ref } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useConfigStore, useChatStore, useUiStore, useGatewayStore } from '@/stores'
+<script lang="ts">
+import { mapState, mapActions } from 'vuex'
 import SessionItem from './SessionItem.vue'
 import PromptDialog from '@/components/common/PromptDialog.vue'
 
-const configStore = useConfigStore()
-const chatStore = useChatStore()
-const uiStore = useUiStore()
-const gatewayStore = useGatewayStore()
+export default {
+  name: 'SessionList',
 
-const { sessionsExpanded } = storeToRefs(configStore)
-const { sessions, currentSessionKey } = storeToRefs(chatStore)
+  components: {
+    SessionItem,
+    PromptDialog
+  },
 
-const sessionCount = computed(() => sessions.value.length)
-const promptDialogRef = ref<InstanceType<typeof PromptDialog> | null>(null)
+  computed: {
+    ...mapState('config', ['sessionsExpanded']),
+    ...mapState('chat', ['sessions', 'currentSessionKey']),
 
-function toggleSessions() {
-  configStore.toggleSessionsExpanded()
-}
-
-function handleCreateSession() {
-  promptDialogRef.value?.show()
-}
-
-async function onPromptConfirm(title: string) {
-  if (!title || !title.trim()) return
-
-  try {
-    uiStore.showLoading('正在创建会话...')
-
-    // 检查是否已连接到Gateway
-    if (!gatewayStore.connected) {
-      throw new Error('请先连接到 Gateway')
+    sessionCount(): number {
+      return this.sessions.length
     }
+  },
 
-    // 获取可用的 agents
-    const agentsResult = await window.electronAPI.listAgents()
+  methods: {
+    ...mapActions('config', ['toggleSessionsExpanded']),
+    ...mapActions('chat', ['addSession', 'setCurrentSession']),
+    ...mapActions('ui', ['showToast', 'showLoading', 'hideLoading']),
+    ...mapActions('gateway', ['connected']),
 
-    if (!agentsResult.success) {
-      throw new Error(agentsResult.error || '获取 Agent 列表失败')
+    toggleSessions() {
+      this.toggleSessionsExpanded()
+    },
+
+    handleCreateSession() {
+      const promptDialogRef = this.$refs.promptDialogRef as any
+      promptDialogRef?.show()
+    },
+
+    async onPromptConfirm(title: string) {
+      if (!title || !title.trim()) return
+
+      try {
+        this.showLoading({ message: '正在创建会话...' })
+
+        // 检查是否已连接到Gateway
+        const gatewayConnected = (this as any).$store.state.gateway.connected
+        if (!gatewayConnected) {
+          throw new Error('请先连接到 Gateway')
+        }
+
+        // 获取可用的 agents
+        const agentsResult = await (window as any).electronAPI.listAgents()
+
+        if (!agentsResult.success) {
+          throw new Error(agentsResult.error || '获取 Agent 列表失败')
+        }
+
+        // 处理不同的返回格式
+        let agents = agentsResult.data
+        if (agents && !Array.isArray(agents) && agents.agents) {
+          agents = agents.agents
+        }
+
+        if (!Array.isArray(agents) || agents.length === 0) {
+          throw new Error('没有可用的 Agent')
+        }
+
+        const agent = agents[0]
+        if (!agent || !agent.id) {
+          throw new Error('Agent 数据格式错误')
+        }
+
+        // 生成 sessionKey (格式: agent:<agentId>:<label>)
+        const sessionLabel = title.trim().replace(/\s+/g, '-').toLowerCase()
+        const sessionKey = `agent:${agent.id}:${sessionLabel}`
+
+        // 创建本地会话对象 (不调用 Gateway API，发送第一条消息时自动创建)
+        const newSession = {
+          key: sessionKey,
+          label: title.trim(),
+          agentId: agent.id,
+          createdAt: Date.now(),
+          updatedAt: Date.now(),
+          messageCount: 0,
+          status: 'active' as const
+        }
+
+        // 添加到会话列表
+        this.addSession(newSession)
+
+        // 自动选择新创建的会话
+        await this.setCurrentSession(sessionKey)
+
+        this.hideLoading()
+        this.showToast({ message: '新对话已创建！发送一条消息开始聊天。', type: 'success' })
+      } catch (error: any) {
+        console.error('Create session error:', error)
+        this.hideLoading()
+        this.showToast({ message: error.message || '创建会话失败', type: 'error' })
+      }
+    },
+
+    async handleSelectSession(sessionKey: string) {
+      await this.setCurrentSession(sessionKey)
     }
-
-    // 处理不同的返回格式
-    let agents = agentsResult.data
-    if (agents && !Array.isArray(agents) && agents.agents) {
-      agents = agents.agents
-    }
-
-    if (!Array.isArray(agents) || agents.length === 0) {
-      throw new Error('没有可用的 Agent')
-    }
-
-    const agent = agents[0]
-    if (!agent || !agent.id) {
-      throw new Error('Agent 数据格式错误')
-    }
-
-    // 生成 sessionKey (格式: agent:<agentId>:<label>)
-    const sessionLabel = title.trim().replace(/\s+/g, '-').toLowerCase()
-    const sessionKey = `agent:${agent.id}:${sessionLabel}`
-
-    // 创建本地会话对象 (不调用 Gateway API，发送第一条消息时自动创建)
-    const newSession = {
-      key: sessionKey,
-      label: title.trim(),
-      agentId: agent.id,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      messageCount: 0,
-      status: 'active' as const
-    }
-
-    // 添加到会话列表
-    chatStore.addSession(newSession)
-
-    // 自动选择新创建的会话
-    await chatStore.setCurrentSession(sessionKey)
-
-    uiStore.hideLoading()
-    uiStore.showToast('新对话已创建！发送一条消息开始聊天。', 'success')
-  } catch (error: any) {
-    console.error('Create session error:', error)
-    uiStore.hideLoading()
-    uiStore.showToast(error.message || '创建会话失败', 'error')
   }
-}
-
-async function handleSelectSession(sessionKey: string) {
-  await chatStore.setCurrentSession(sessionKey)
 }
 </script>
 

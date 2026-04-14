@@ -19,52 +19,69 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { computed } from 'vue'
+<script lang="ts">
+import { PropType } from 'vue'
 import type { Session } from '@/types'
-import { formatDate, escapeHtml } from '@/utils'
 
-interface Props {
-  session: Session
-  active?: boolean
-}
+export default {
+  name: 'SessionItem',
 
-const props = withDefaults(defineProps<Props>(), {
-  active: false
-})
+  props: {
+    session: {
+      type: Object as PropType<Session>,
+      required: true
+    },
+    active: {
+      type: Boolean,
+      default: false
+    }
+  },
 
-const emit = defineEmits<{
-  click: []
-}>()
+  computed: {
+    displayTitle(): string {
+      return this.session.label || this.session.key
+    },
 
-const displayTitle = computed(() => {
-  return props.session.label || props.session.key
-})
+    messagePreview(): string {
+      const count = this.session.messageCount || 0
+      if (this.session.lastMessage && count > 0) {
+        const preview = this.session.lastMessage.substring(0, 60)
+        return this.session.lastMessage.length > 60
+          ? preview + '...'
+          : preview
+      }
+      return '暂无消息'
+    },
 
-const messagePreview = computed(() => {
-  const count = props.session.messageCount || 0
-  if (props.session.lastMessage && count > 0) {
-    const preview = props.session.lastMessage.substring(0, 60)
-    return props.session.lastMessage.length > 60
-      ? preview + '...'
-      : preview
+    formattedCreatedAt(): string {
+      if (this.session.createdAt) {
+        return this.formatDate(this.session.createdAt)
+      }
+      return '未知'
+    },
+
+    messageCount(): number {
+      return this.session.messageCount || 0
+    }
+  },
+
+  methods: {
+    handleClick() {
+      this.$emit('click')
+    },
+
+    formatDate(timestamp: number): string {
+      if (!timestamp) return '未知'
+      const date = new Date(timestamp)
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      })
+    }
   }
-  return '暂无消息'
-})
-
-const formattedCreatedAt = computed(() => {
-  if (props.session.createdAt) {
-    return formatDate(props.session.createdAt)
-  }
-  return '未知'
-})
-
-const messageCount = computed(() => {
-  return props.session.messageCount || 0
-})
-
-function handleClick() {
-  emit('click')
 }
 </script>
 

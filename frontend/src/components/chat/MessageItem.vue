@@ -33,114 +33,111 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { computed } from 'vue'
+<script lang="ts">
+import { PropType } from 'vue'
 import type { Message } from '@/types'
 import { renderMarkdownSync, formatTimestamp } from '@/utils'
 import ToolCallItem from './ToolCallItem.vue'
 
-interface Props {
-  message: Message
-  isStreaming?: boolean
-}
+export default {
+  name: 'MessageItem',
 
-const props = withDefaults(defineProps<Props>(), {
-  isStreaming: false
-})
+  components: {
+    ToolCallItem
+  },
 
-// 判断是否是工具调用消息
-const isToolCallMessage = computed(() => {
-  const type = props.message.metadata?.type
-  return type === 'tool_call' || type === 'tool_result' || type === 'tool_error'
-})
-
-// 判断是否真正在流式传输（状态为streaming且isStreaming为true）
-const isActuallyStreaming = computed(() => {
-  return props.isStreaming && props.message.status === 'streaming'
-})
-
-const avatarText = computed(() => {
-  if (props.message.role === 'user') return 'U'
-  if (props.message.role === 'system') return '🔧'
-  return 'A'
-})
-
-const senderName = computed(() => {
-  if (props.message.role === 'user') return '你'
-  if (props.message.role === 'system') {
-    // 如果是工具消息，显示工具名称
-    if (props.message.metadata?.type === 'tool_call' || props.message.metadata?.type === 'tool_result') {
-      return `工具: ${props.message.metadata.toolName || 'unknown'}`
+  props: {
+    message: {
+      type: Object as PropType<Message>,
+      required: true
+    },
+    isStreaming: {
+      type: Boolean,
+      default: false
     }
-    return '系统'
-  }
-  return 'Assistant'
-})
+  },
 
-const formattedTime = computed(() => {
-  return formatTimestamp(props.message.timestamp)
-})
+  computed: {
+    isToolCallMessage(): boolean {
+      const type = this.message.metadata?.type
+      return type === 'tool_call' || type === 'tool_result' || type === 'tool_error'
+    },
 
-const renderedContent = computed(() => {
-  let content = props.message.content || ''
+    isActuallyStreaming(): boolean {
+      return this.isStreaming && this.message.status === 'streaming'
+    },
 
-  // Handle array content (convert to string)
-  if (Array.isArray(content)) {
-    content = content.map((part: any) => {
-      if (typeof part === 'string') return part
-      if (part && typeof part === 'object') {
-        // Handle OpenAI format content parts
-        if (part.type === 'text' && part.text) return part.text
-        if (part.type === 'image_url') return '[图片]'
-        if (part.type === 'tool_use' || part.type === 'tool_use_call') return `[工具调用: ${part.name || part.id || 'unknown'}]`
-        if (part.type === 'tool_result') return `[工具结果]`
-        if (part.content) return part.content
-        if (part.text) return part.text
-        // For unknown object types, try to extract useful info
-        if (part.type) return `[${part.type}]`
-        // Skip unknown objects
-        return ''
+    avatarText(): string {
+      if (this.message.role === 'user') return 'U'
+      if (this.message.role === 'system') return '🔧'
+      return 'A'
+    },
+
+    senderName(): string {
+      if (this.message.role === 'user') return '你'
+      if (this.message.role === 'system') {
+        if (this.message.metadata?.type === 'tool_call' || this.message.metadata?.type === 'tool_result') {
+          return `工具: ${this.message.metadata.toolName || 'unknown'}`
+        }
+        return '系统'
       }
-      return String(part)
-    }).filter(Boolean).join('')
+      return 'Assistant'
+    },
+
+    formattedTime(): string {
+      return formatTimestamp(this.message.timestamp)
+    },
+
+    renderedContent(): string {
+      let content = this.message.content || ''
+
+      // Handle array content (convert to string)
+      if (Array.isArray(content)) {
+        content = content.map((part: any) => {
+          if (typeof part === 'string') return part
+          if (part && typeof part === 'object') {
+            if (part.type === 'text' && part.text) return part.text
+            if (part.type === 'image_url') return '[图片]'
+            if (part.type === 'tool_use' || part.type === 'tool_use_call') return `[工具调用: ${part.name || part.id || 'unknown'}]`
+            if (part.type === 'tool_result') return `[工具结果]`
+            if (part.content) return part.content
+            if (part.text) return part.text
+            if (part.type) return `[${part.type}]`
+            return ''
+          }
+          return String(part)
+        }).filter(Boolean).join('')
+      }
+
+      // 处理工具调用和思考标记
+      content = content
+        .replace(/\[工具调用:\s*([^\]]+)\]/g, (match: string, toolName: string) => {
+          return `<span class="tool-call-badge">🔧 调用工具: ${toolName}</span>`
+        })
+        .replace(/\[工具结果\]/g, '<span class="tool-result-badge">📋 工具结果</span>')
+        .replace(/\[thinking\]/g, '<span class="thinking-badge">💭 思考中...</span>')
+        .replace(/\[toolCall\](.*?)\[\/toolCall\]/g, (match: string, toolName: string) => {
+          return `<span class="tool-call-badge">🔧 调用工具: ${toolName}</span>`
+        })
+        .replace(/\[toolResult\]/g, '<span class="tool-result-badge">📋 工具结果</span>')
+        .replace(/\[toolCall\]/g, '<span class="tool-call-badge">🔧 工具调用</span>')
+
+      const shouldShowCursor = this.isActuallyStreaming
+
+      if (shouldShowCursor && !content) {
+        return '<span class="streaming-cursor">▊</span>'
+      }
+
+      const html = renderMarkdownSync(content)
+
+      if (shouldShowCursor) {
+        return html + '<span class="streaming-cursor">▊</span>'
+      }
+
+      return html
+    }
   }
-
-  // 处理工具调用和思考标记，使其更醒目
-  content = content
-    // 处理 [工具调用: xxx]
-    .replace(/\[工具调用:\s*([^\]]+)\]/g, (match, toolName) => {
-      return `<span class="tool-call-badge">🔧 调用工具: ${toolName}</span>`
-    })
-    // 处理 [工具结果]
-    .replace(/\[工具结果\]/g, '<span class="tool-result-badge">📋 工具结果</span>')
-    // 处理 [thinking]
-    .replace(/\[thinking\]/g, '<span class="thinking-badge">💭 思考中...</span>')
-    // 处理 [toolCall]...[/toolCall]
-    .replace(/\[toolCall\](.*?)\[\/toolCall\]/g, (match, toolName) => {
-      return `<span class="tool-call-badge">🔧 调用工具: ${toolName}</span>`
-    })
-    // 处理 [toolResult]
-    .replace(/\[toolResult\]/g, '<span class="tool-result-badge">📋 工具结果</span>')
-    // 处理单独的 [toolCall]（没有闭合标签）
-    .replace(/\[toolCall\]/g, '<span class="tool-call-badge">🔧 工具调用</span>')
-
-  // 检查是否应该显示光标：必须是流式状态且isStreaming为true
-  const shouldShowCursor = isActuallyStreaming.value
-
-  // 如果是流式消息且内容为空，显示输入提示
-  if (shouldShowCursor && !content) {
-    return '<span class="streaming-cursor">▊</span>'
-  }
-
-  const html = renderMarkdownSync(content)
-
-  // 只有在真正流式传输时才添加光标
-  if (shouldShowCursor) {
-    return html + '<span class="streaming-cursor">▊</span>'
-  }
-
-  return html
-})
+}
 </script>
 
 <style scoped>
@@ -195,7 +192,6 @@ const renderedContent = computed(() => {
   background: hsl(var(--secondary));
 }
 
-/* 系统消息样式（不包括工具调用消息） */
 .message-system:not(.is-tool-call) .message-avatar {
   background: hsl(var(--muted));
   font-size: 1.25rem;
@@ -244,19 +240,19 @@ const renderedContent = computed(() => {
   word-break: break-word;
 }
 
-.message-content :deep(p) {
+.message-content ::v-deep(p) {
   margin: 0.375rem 0;
 }
 
-.message-content :deep(p:first-child) {
+.message-content ::v-deep(p:first-child) {
   margin-top: 0;
 }
 
-.message-content :deep(p:last-child) {
+.message-content ::v-deep(p:last-child) {
   margin-bottom: 0;
 }
 
-.message-content :deep(pre) {
+.message-content ::v-deep(pre) {
   background: hsl(var(--muted));
   border-radius: calc(var(--radius) - 4px);
   padding: 0.75rem;
@@ -264,25 +260,24 @@ const renderedContent = computed(() => {
   margin: 0.5rem 0;
 }
 
-.message-content :deep(code) {
+.message-content ::v-deep(code) {
   background: hsl(var(--muted));
   padding: 0.125rem 0.25rem;
   border-radius: 0.25rem;
   font-size: 0.8125rem;
 }
 
-.message-content :deep(pre code) {
+.message-content ::v-deep(pre code) {
   background: transparent;
   padding: 0;
 }
 
-.message-content :deep(a) {
+.message-content ::v-deep(a) {
   color: hsl(var(--primary));
   text-decoration: underline;
 }
 
-/* 工具调用和思考标记样式 */
-.message-content :deep(.tool-call-badge) {
+.message-content ::v-deep(.tool-call-badge) {
   display: inline-block;
   background: hsl(var(--primary) / 0.1);
   border: 1px solid hsl(var(--primary) / 0.3);
@@ -295,7 +290,7 @@ const renderedContent = computed(() => {
   white-space: nowrap;
 }
 
-.message-content :deep(.tool-result-badge) {
+.message-content ::v-deep(.tool-result-badge) {
   display: inline-block;
   background: hsl(142, 76%, 36% / 0.1);
   border: 1px solid hsl(142, 76%, 36% / 0.3);
@@ -307,7 +302,7 @@ const renderedContent = computed(() => {
   margin: 0.25rem 0;
 }
 
-.message-content :deep(.thinking-badge) {
+.message-content ::v-deep(.thinking-badge) {
   display: inline-block;
   background: hsl(var(--muted) / 0.3);
   color: hsl(var(--muted-foreground));

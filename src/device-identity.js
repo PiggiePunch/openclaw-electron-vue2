@@ -1,45 +1,30 @@
-import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
-import { app } from 'electron';
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const { app } = require('electron');
 
-// ED25519 SPKI prefix for raw public keys
 const ED25519_SPKI_PREFIX = Buffer.from('302a300506032b6570032100', 'hex');
-
-export type DeviceIdentity = {
-  deviceId: string;
-  publicKeyPem: string;
-  privateKeyPem: string;
-};
-
-type StoredIdentity = {
-  version: 1;
-  deviceId: string;
-  publicKeyPem: string;
-  privateKeyPem: string;
-  createdAtMs: number;
-};
 
 const STORAGE_FILE = 'device-identity.json';
 
-function getStoragePath(): string {
+function getStoragePath() {
   const userDataPath = app.getPath('userData');
   return path.join(userDataPath, STORAGE_FILE);
 }
 
-function base64UrlEncode(buf: Buffer): string {
+function base64UrlEncode(buf) {
   return buf.toString('base64').replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/g, '');
 }
 
-function base64UrlDecode(input: string): Buffer {
+function base64UrlDecode(input) {
   const normalized = input.replaceAll('-', '+').replaceAll('_', '/');
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
   return Buffer.from(padded, 'base64');
 }
 
-function derivePublicKeyRaw(publicKeyPem: string): Buffer {
+function derivePublicKeyRaw(publicKeyPem) {
   const key = crypto.createPublicKey(publicKeyPem);
-  const spki = key.export({ type: 'spki', format: 'der' }) as Buffer;
+  const spki = key.export({ type: 'spki', format: 'der' });
   if (
     spki.length === ED25519_SPKI_PREFIX.length + 32 &&
     spki.subarray(0, ED25519_SPKI_PREFIX.length).equals(ED25519_SPKI_PREFIX)
@@ -49,12 +34,12 @@ function derivePublicKeyRaw(publicKeyPem: string): Buffer {
   return spki;
 }
 
-function fingerprintPublicKey(publicKeyPem: string): string {
+function fingerprintPublicKey(publicKeyPem) {
   const raw = derivePublicKeyRaw(publicKeyPem);
   return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
-function generateIdentity(): DeviceIdentity {
+function generateIdentity() {
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString();
   const privateKeyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
@@ -73,14 +58,14 @@ function generateIdentity(): DeviceIdentity {
   };
 }
 
-export function loadOrCreateDeviceIdentity(): DeviceIdentity {
+function loadOrCreateDeviceIdentity() {
   const storagePath = getStoragePath();
   console.log('Device Identity Storage Path:', storagePath);
 
   try {
     if (fs.existsSync(storagePath)) {
       const raw = fs.readFileSync(storagePath, 'utf8');
-      const parsed = JSON.parse(raw) as StoredIdentity;
+      const parsed = JSON.parse(raw);
 
       if (
         parsed?.version === 1 &&
@@ -90,8 +75,7 @@ export function loadOrCreateDeviceIdentity(): DeviceIdentity {
       ) {
         const derivedId = fingerprintPublicKey(parsed.publicKeyPem);
         if (derivedId && derivedId !== parsed.deviceId) {
-          // Device ID mismatch, update it
-          const updated: StoredIdentity = {
+          const updated = {
             ...parsed,
             deviceId: derivedId,
           };
@@ -124,9 +108,8 @@ export function loadOrCreateDeviceIdentity(): DeviceIdentity {
     console.error('Failed to load device identity, generating new one:', error);
   }
 
-  // Generate new identity
   const identity = generateIdentity();
-  const stored: StoredIdentity = {
+  const stored = {
     version: 1,
     deviceId: identity.deviceId,
     publicKeyPem: identity.publicKeyPem,
@@ -135,7 +118,6 @@ export function loadOrCreateDeviceIdentity(): DeviceIdentity {
   };
 
   try {
-    // Ensure directory exists
     const dir = path.dirname(storagePath);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
@@ -148,32 +130,19 @@ export function loadOrCreateDeviceIdentity(): DeviceIdentity {
   return identity;
 }
 
-export function signDevicePayload(privateKeyPem: string, payload: string): string {
+function signDevicePayload(privateKeyPem, payload) {
   const key = crypto.createPrivateKey(privateKeyPem);
   const sig = crypto.sign(null, Buffer.from(payload, 'utf8'), key);
   return base64UrlEncode(sig);
 }
 
-export function publicKeyRawBase64UrlFromPem(publicKeyPem: string): string {
+function publicKeyRawBase64UrlFromPem(publicKeyPem) {
   return base64UrlEncode(derivePublicKeyRaw(publicKeyPem));
 }
 
-export function buildDeviceAuthPayload(params: {
-  deviceId: string;
-  clientId: string;
-  clientMode: string;
-  role: string;
-  scopes: string[];
-  signedAtMs: number;
-  token?: string | null;
-  nonce: string;
-  platform?: string | null;
-  deviceFamily?: string | null;
-}): string {
+function buildDeviceAuthPayload(params) {
   const scopes = params.scopes.join(',');
   const token = params.token ?? '';
-  const platform = normalizeDeviceMetadataForAuth(params.platform);
-  const deviceFamily = normalizeDeviceMetadataForAuth(params.deviceFamily);
 
   return [
     'v2',
@@ -188,18 +157,7 @@ export function buildDeviceAuthPayload(params: {
   ].join('|');
 }
 
-export function buildDeviceAuthPayloadV3(params: {
-  deviceId: string;
-  clientId: string;
-  clientMode: string;
-  role: string;
-  scopes: string[];
-  signedAtMs: number;
-  token?: string | null;
-  nonce: string;
-  platform?: string | null;
-  deviceFamily?: string | null;
-}): string {
+function buildDeviceAuthPayloadV3(params) {
   const scopes = params.scopes.join(',');
   const token = params.token ?? '';
   const platform = normalizeDeviceMetadataForAuth(params.platform);
@@ -220,7 +178,7 @@ export function buildDeviceAuthPayloadV3(params: {
   ].join('|');
 }
 
-function normalizeDeviceMetadataForAuth(value?: string | null): string {
+function normalizeDeviceMetadataForAuth(value) {
   if (typeof value !== 'string') {
     return '';
   }
@@ -228,9 +186,15 @@ function normalizeDeviceMetadataForAuth(value?: string | null): string {
   if (!trimmed) {
     return '';
   }
-  // Keep cross-runtime normalization deterministic by only
-  // lowercasing ASCII metadata fields used in auth payloads.
   return trimmed.replace(/[A-Z]/g, (char) =>
     String.fromCharCode(char.charCodeAt(0) + 32)
   );
 }
+
+module.exports = {
+  loadOrCreateDeviceIdentity,
+  signDevicePayload,
+  publicKeyRawBase64UrlFromPem,
+  buildDeviceAuthPayload,
+  buildDeviceAuthPayloadV3,
+};

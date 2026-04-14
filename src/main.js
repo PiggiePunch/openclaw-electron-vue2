@@ -1,13 +1,8 @@
-import { app, BrowserWindow, ipcMain, Menu } from 'electron';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { GatewayClient } from './gateway-client.js';
-import { ConfigManager } from './config-manager.js';
-import { LogManager } from './log-manager.js';
-
-// ESM compatible __dirname
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const { app, BrowserWindow, ipcMain, Menu } = require('electron');
+const path = require('path');
+const { GatewayClient } = require('./gateway-client');
+const { ConfigManager } = require('./config-manager');
+const { LogManager } = require('./log-manager');
 
 // ============================================================================
 // 关键：必须在任何app方法调用之前设置所有命令行参数
@@ -60,10 +55,10 @@ if (process.platform === 'linux') {
   console.log('  ✓ 默认字体族已设置为微软雅黑\n');
 }
 
-let mainWindow: BrowserWindow | null = null;
-let gatewayClient: GatewayClient | null = null;
-let configManager: ConfigManager;
-let logManager: LogManager;
+let mainWindow = null;
+let gatewayClient = null;
+let configManager;
+let logManager;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -82,7 +77,7 @@ function createWindow() {
     },
     title: 'OpenClaw Desktop Client',
     // 确保更好的渲染质量
-    show: false,
+    show: true,
     // 自定义标题栏 - 隐藏默认标题栏
     frame: false,
     titleBarStyle: 'hidden',
@@ -94,20 +89,55 @@ function createWindow() {
   });
 
   // Load the index.html of the app
-  // 开发模式：连接到 Vite 开发服务器
+  // 开发模式：连接到 webpack-dev-server
   // 生产模式：加载构建后的文件
   const isDev = process.env.NODE_ENV === 'development';
 
   if (isDev) {
-    // 开发模式：加载 Vite 开发服务器
-    mainWindow.loadURL('http://localhost:5173');
-    console.log('🚀 开发模式：连接到 Vite 开发服务器 (http://localhost:5173)');
+    // 开发模式：加载 webpack-dev-server，添加重试机制
+    const devServerURL = 'http://localhost:5173';
+    let retryCount = 0;
+    const maxRetries = 10;
+    const retryInterval = 1000; // 1秒
+
+    const loadDevServer = () => {
+      console.log(`🔄 Attempting to load dev server (attempt ${retryCount + 1})...`);
+      mainWindow?.loadURL(devServerURL).then(() => {
+        console.log('✅ Dev server loaded successfully');
+      }).catch((err) => {
+        console.error(`Failed to load dev server (attempt ${retryCount + 1}):`, err.message);
+        if (retryCount < maxRetries) {
+          retryCount++;
+          console.log(`Retrying in ${retryInterval}ms...`);
+          setTimeout(loadDevServer, retryInterval);
+        } else {
+          console.error('Max retries reached. Please check if webpack-dev-server is running.');
+          // 显示错误页面
+          mainWindow?.loadFile(path.join(__dirname, 'renderer/index.html')).catch(() => {
+            console.error('Failed to load fallback page');
+          });
+        }
+      });
+    };
+
+    // 先尝试加载，如果失败会重试
+    console.log('🚀 开发模式：连接到 webpack-dev-server (http://localhost:5173)');
+    loadDevServer();
   } else {
     // 生产模式：加载构建后的文件
     // __dirname 是 dist/ 目录，所以直接加载 renderer/index.html
     mainWindow.loadFile(path.join(__dirname, 'renderer/index.html'));
     console.log('📦 生产模式：加载构建后的文件');
   }
+
+  // 强制显示窗口（调试用）
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      console.log('🔍 Forcing window to show after 2 seconds...');
+      mainWindow.show();
+      console.log('✅ Window show() called forcefully');
+    }
+  }, 2000);
 
   // 确保正确的UTF-8编码
   mainWindow.webContents.on('did-start-loading', () => {
@@ -168,11 +198,13 @@ function createWindow() {
 
   // 等待窗口加载完成后显示，避免视觉闪烁
   mainWindow.once('ready-to-show', () => {
+    console.log('✅ Window ready-to-show event fired');
     mainWindow?.show();
+    console.log('✅ Window show() called');
   });
 
   // Open DevTools automatically (you can comment this out if not needed)
-  // mainWindow.webContents.openDevTools();
+  mainWindow.webContents.openDevTools();
 
   // Add globalShortcut for DevTools (optional)
   // This allows Ctrl+Shift+I to open DevTools even with custom title bar
@@ -242,19 +274,19 @@ ipcMain.handle('connect-gateway', async (event, config) => {
 
     gatewayClient = new GatewayClient(config, logManager);
 
-    gatewayClient.on('connected', (hello: any) => {
+    gatewayClient.on('connected', (hello) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('gateway-connected', hello);
       }
     });
 
-    gatewayClient.on('disconnected', (reason: any) => {
+    gatewayClient.on('disconnected', (reason) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('gateway-disconnected', reason);
       }
     });
 
-    gatewayClient.on('event', (evt: any) => {
+    gatewayClient.on('event', (evt) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('gateway-event', evt);
       }
@@ -262,7 +294,7 @@ ipcMain.handle('connect-gateway', async (event, config) => {
 
     await gatewayClient.connect();
     return { success: true };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -274,7 +306,7 @@ ipcMain.handle('disconnect-gateway', async () => {
       gatewayClient = null;
     }
     return { success: true };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -290,7 +322,7 @@ ipcMain.handle('send-message', async (event, sessionKey, message, attachments) =
   try {
     const result = await gatewayClient.sendMessage(sessionKey, message, attachments);
     return { success: true, runId: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -302,7 +334,7 @@ ipcMain.handle('get-chat-history', async (event, sessionKey, limit) => {
   try {
     const result = await gatewayClient.getChatHistory(sessionKey, limit);
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -314,7 +346,7 @@ ipcMain.handle('abort-chat', async (event, sessionKey, runId) => {
   try {
     await gatewayClient.abortChat(sessionKey, runId);
     return { success: true };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -326,7 +358,7 @@ ipcMain.handle('list-sessions', async (event, params) => {
   try {
     const result = await gatewayClient.listSessions(params);
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -338,7 +370,7 @@ ipcMain.handle('resolve-session', async (event, params) => {
   try {
     const result = await gatewayClient.resolveSession(params);
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -350,7 +382,7 @@ ipcMain.handle('delete-session', async (event, key, deleteTranscript = false) =>
   try {
     await gatewayClient.deleteSession(key, deleteTranscript);
     return { success: true };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -362,7 +394,7 @@ ipcMain.handle('patch-session', async (event, key, patch) => {
   try {
     await gatewayClient.patchSession(key, patch);
     return { success: true };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -374,7 +406,7 @@ ipcMain.handle('agents-list', async () => {
   try {
     const result = await gatewayClient.listAgents();
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -395,7 +427,7 @@ ipcMain.handle('cron-list', async (event, params) => {
   try {
     const result = await gatewayClient.listCronJobs(params);
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -407,7 +439,7 @@ ipcMain.handle('cron-add', async (event, job) => {
   try {
     const result = await gatewayClient.addCronJob(job);
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -419,7 +451,7 @@ ipcMain.handle('cron-update', async (event, params) => {
   try {
     const result = await gatewayClient.updateCronJob(params.id, params.patch);
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -431,7 +463,7 @@ ipcMain.handle('cron-remove', async (event, params) => {
   try {
     const result = await gatewayClient.removeCronJob(params.id);
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -443,7 +475,7 @@ ipcMain.handle('cron-run', async (event, params) => {
   try {
     const result = await gatewayClient.runCronJob(params.id, params.mode);
     return { success: true, data: result };
-  } catch (error: any) {
+  } catch (error) {
     return { success: false, error: error.message };
   }
 });
@@ -477,7 +509,7 @@ ipcMain.handle('window-close', async () => {
   }
 });
 
-ipcMain.handle('window-is-maximized', async (): Promise<boolean> => {
+ipcMain.handle('window-is-maximized', async () => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     return mainWindow.isMaximized();
   }

@@ -35,46 +35,63 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { storeToRefs } from 'pinia'
-import { useLogsStore } from '@/stores'
+<script lang="ts">
+import { mapState, mapActions } from 'vuex'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
-const logsStore = useLogsStore()
-const { logs, filter, limit } = storeToRefs(logsStore)
+export default {
+  name: 'LogsPanel',
 
-const localFilter = ref(filter.value)
-const localLimit = ref(limit.value)
-const confirmDialogRef = ref<InstanceType<typeof ConfirmDialog> | null>(null)
+  components: {
+    ConfirmDialog
+  },
 
-const logsText = computed(() => {
-  return logs.value
-    .map(log => {
-      const timestamp = new Date(log.timestamp).toISOString()
-      return `[${timestamp}] [${log.level.toUpperCase()}] [${log.source}] ${log.message}`
-    })
-    .join('\n')
-})
+  data() {
+    return {
+      localFilter: '',
+      localLimit: 500
+    }
+  },
 
-watch(localFilter, (value) => {
-  logsStore.setFilter(value)
-})
+  computed: {
+    ...mapState('logs', ['logs', 'filter', 'limit']),
 
-watch(localLimit, (value) => {
-  logsStore.setLimit(value)
-})
+    logsText(): string {
+      return this.logs
+        .map((log: any) => {
+          const timestamp = new Date(log.timestamp).toISOString()
+          return `[${timestamp}] [${log.level.toUpperCase()}] [${log.source}] ${log.message}`
+        })
+        .join('\n')
+    }
+  },
 
-async function handleRefresh() {
-  await logsStore.refresh()
-}
+  watch: {
+    localFilter(value: string) {
+      this.setFilter(value)
+    },
 
-function handleClear() {
-  confirmDialogRef.value?.show()
-}
+    localLimit(value: number) {
+      this.setLimit(value)
+    }
+  },
 
-async function onConfirmClear() {
-  await logsStore.clearLogs()
+  methods: {
+    ...mapActions('logs', ['refresh', 'clearLogs', 'setFilter', 'setLimit']),
+
+    async handleRefresh() {
+      await this.refresh()
+    },
+
+    handleClear() {
+      const confirmDialogRef = this.$refs.confirmDialogRef as any
+      confirmDialogRef?.show()
+    },
+
+    async onConfirmClear() {
+      await this.clearLogs()
+    }
+  }
 }
 </script>
 

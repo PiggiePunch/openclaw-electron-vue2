@@ -49,66 +49,10 @@
   </div>
 </template>
 
-<script setup lang="ts">
-import { computed, ref } from 'vue'
+<script lang="ts">
+import { PropType } from 'vue'
 import type { Message } from '@/types'
 
-interface Props {
-  message: Message
-}
-
-const props = withDefaults(defineProps<Props>(), {})
-
-const isExpanded = ref(false)
-
-const toolPhase = computed(() => props.message.metadata?.phase || 'start')
-const toolName = computed(() => props.message.metadata?.toolName || 'unknown')
-const toolTitle = computed(() => props.message.metadata?.toolTitle || toolName.value)
-const toolArgs = computed(() => props.message.metadata?.args)
-const toolResult = computed(() => props.message.metadata?.result)
-const partialResult = computed(() => props.message.metadata?.partialResult)
-const hasError = computed(() => props.message.metadata?.isError === true)
-const errorMessage = computed(() => props.message.metadata?.error)
-const messageStatus = computed(() => props.message.status)
-
-const canExpand = computed(() => {
-  return toolArgs.value && Object.keys(toolArgs.value).length > 0
-})
-
-const statusText = computed(() => {
-  if (hasError.value) return '执行失败'
-  if (toolPhase.value === 'start') return '调用中...'
-  if (toolPhase.value === 'update') return '执行中...'
-  if (toolPhase.value === 'result') return '已完成'
-  return ''
-})
-
-const toolIcon = computed(() => {
-  // 根据工具类型返回不同图标
-  const kind = props.message.metadata?.kind
-  if (kind === 'search') return 'SearchIcon'
-  if (kind === 'bash') return 'TerminalIcon'
-  if (kind === 'browser') return 'GlobeIcon'
-  return 'ToolIcon'
-})
-
-function toggleExpand() {
-  if (canExpand.value) {
-    isExpanded.value = !isExpanded.value
-  }
-}
-
-function formatJSON(data: any): string {
-  if (!data) return ''
-  try {
-    return JSON.stringify(data, null, 2)
-  } catch {
-    return String(data)
-  }
-}
-</script>
-
-<script lang="ts">
 // 图标组件
 const SearchIcon = {
   template: `
@@ -143,11 +87,97 @@ const ToolIcon = {
 }
 
 export default {
+  name: 'ToolCallItem',
+
   components: {
     SearchIcon,
     TerminalIcon,
     GlobeIcon,
     ToolIcon
+  },
+
+  props: {
+    message: {
+      type: Object as PropType<Message>,
+      required: true
+    }
+  },
+
+  data() {
+    return {
+      isExpanded: false
+    }
+  },
+
+  computed: {
+    toolPhase(): string {
+      return this.message.metadata?.phase || 'start'
+    },
+
+    toolName(): string {
+      return this.message.metadata?.toolName || 'unknown'
+    },
+
+    toolTitle(): string {
+      return this.message.metadata?.toolTitle || this.toolName
+    },
+
+    toolArgs(): any {
+      return this.message.metadata?.args
+    },
+
+    toolResult(): any {
+      return this.message.metadata?.result
+    },
+
+    partialResult(): string {
+      return this.message.metadata?.partialResult || ''
+    },
+
+    hasError(): boolean {
+      return this.message.metadata?.isError === true
+    },
+
+    errorMessage(): string {
+      return this.message.metadata?.error || ''
+    },
+
+    canExpand(): boolean {
+      return this.toolArgs && Object.keys(this.toolArgs).length > 0
+    },
+
+    statusText(): string {
+      if (this.hasError) return '执行失败'
+      if (this.toolPhase === 'start') return '调用中...'
+      if (this.toolPhase === 'update') return '执行中...'
+      if (this.toolPhase === 'result') return '已完成'
+      return ''
+    },
+
+    toolIcon(): string {
+      const kind = this.message.metadata?.kind
+      if (kind === 'search') return 'SearchIcon'
+      if (kind === 'bash') return 'TerminalIcon'
+      if (kind === 'browser') return 'GlobeIcon'
+      return 'ToolIcon'
+    }
+  },
+
+  methods: {
+    toggleExpand() {
+      if (this.canExpand) {
+        this.isExpanded = !this.isExpanded
+      }
+    },
+
+    formatJSON(data: any): string {
+      if (!data) return ''
+      try {
+        return JSON.stringify(data, null, 2)
+      } catch {
+        return String(data)
+      }
+    }
   }
 }
 </script>
