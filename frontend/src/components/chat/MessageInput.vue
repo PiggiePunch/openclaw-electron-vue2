@@ -106,7 +106,14 @@ export default {
     },
 
     handleAbort() {
-      if (!this.canAbort) return
+      console.log('🛑 MessageInput handleAbort called')
+      console.log('   - canAbort:', this.canAbort)
+      console.log('   - isSending:', this.isSending)
+      if (!this.canAbort) {
+        console.log('   ❌ Abort blocked: canAbort is false')
+        return
+      }
+      console.log('   ✅ Emitting abort event')
       this.$emit('abort')
     },
 

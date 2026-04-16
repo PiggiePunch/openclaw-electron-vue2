@@ -21,8 +21,12 @@ const electronAPI = {
     ipcRenderer.invoke('send-message', sessionKey, message, attachments),
   getChatHistory: (sessionKey, limit) =>
     ipcRenderer.invoke('get-chat-history', sessionKey, limit),
-  abortChat: (sessionKey, runId) =>
-    ipcRenderer.invoke('abort-chat', sessionKey, runId),
+  abortChat: (sessionKey, runId) => {
+    console.log('🛑 Preload abortChat called');
+    console.log('   - sessionKey:', sessionKey);
+    console.log('   - runId:', runId);
+    return ipcRenderer.invoke('abort-chat', sessionKey, runId);
+  },
 
   listSessions: (params) => ipcRenderer.invoke('list-sessions', params),
   resolveSession: (params) => ipcRenderer.invoke('resolve-session', params),

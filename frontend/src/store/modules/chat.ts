@@ -301,23 +301,52 @@ const actions = {
    * 取消当前聊天
    */
   async abortCurrentChat({ commit, state }: any) {
+    console.log('🛑 Store abortCurrentChat called')
+    console.log('   - currentSessionKey:', state.currentSessionKey)
+    console.log('   - currentRunId:', state.currentRunId)
+    console.log('   - isSending:', state.isSending)
+
     if (!state.currentSessionKey) {
-      console.warn('No current session to abort')
+      console.warn('❌ No current session to abort')
       return false
     }
 
     try {
-      await abortChat(state.currentSessionKey, state.currentRunId || undefined)
-      console.log('Chat aborted successfully')
+      // 只有在有runId的情况下才发送abort消息到后端
+      // 如果还在等待服务器响应（没有runId），只清理前端状态
+      if (state.currentRunId) {
+        console.log('   ✅ Calling abortChat API with runId...')
+        await abortChat(state.currentSessionKey, state.currentRunId)
+        console.log('   ✅ Abort API call completed')
+      } else {
+        console.log('   ℹ️ No runId available, only clearing frontend state')
+      }
 
-      commit('CLEAR_STREAMING_STATE')
+      // 清除超时定时器
+      if (state.streamingTimeout) {
+        clearTimeout(state.streamingTimeout)
+      }
+
+      // 清除流式状态
+      commit('SET_STREAMING_MESSAGE_ID', null)
+      commit('SET_STREAMING_TIMEOUT', null)
       commit('SET_THINKING_MESSAGE_ID', null)
       commit('SET_IS_SENDING', false)
       commit('SET_CURRENT_RUN_ID', null)
 
+      console.log('   ✅ Frontend state cleared')
       return true
     } catch (error: any) {
-      console.error('Failed to abort chat:', error)
+      console.error('   ❌ Failed to abort chat:', error)
+      // 即使API调用失败，也要清理前端状态
+      if (state.streamingTimeout) {
+        clearTimeout(state.streamingTimeout)
+      }
+      commit('SET_STREAMING_MESSAGE_ID', null)
+      commit('SET_STREAMING_TIMEOUT', null)
+      commit('SET_THINKING_MESSAGE_ID', null)
+      commit('SET_IS_SENDING', false)
+      commit('SET_CURRENT_RUN_ID', null)
       throw error
     }
   },
@@ -687,7 +716,14 @@ const actions = {
     const { runId, sessionKey, seq, state: msgState, message, stopReason } = payload
 
     console.log(`📨📨📨 Chat event: runId=${runId}, seq=${seq}, state=${msgState}`)
+    console.log(`   - Current runId: ${state.currentRunId}`)
     console.log(`   - Full payload:`, JSON.stringify(payload).substring(0, 500))
+
+    // 如果收到的消息的 runId 不是当前运行的 runId，忽略（可能是已经终止的会话）
+    if (state.currentRunId && state.currentRunId !== runId) {
+      console.log(`   ⚠️ Ignoring event from different runId: ${runId} (current: ${state.currentRunId})`)
+      return
+    }
 
     if (await dispatch('isEventProcessed', { eventType: 'chat', runId, seq })) {
       console.log(`   - Skipping duplicate chat event ${runId}-${seq}`)
@@ -706,16 +742,38 @@ const actions = {
       commit('SET_MESSAGES', { sessionKey: targetSessionKey, messages: [] })
     }
 
+    // 处理 aborted 状态（没有 message 字段）
+    if (msgState === 'aborted') {
+      console.log(`   ⏹️ Message aborted, stopReason: ${stopReason}`)
+
+      commit('SET_STREAMING_MESSAGE_ID', null)
+      commit('SET_THINKING_MESSAGE_ID', null)
+      commit('SET_IS_SENDING', false)
+      commit('SET_CURRENT_RUN_ID', null)
+
+      await dispatch('clearProcessedEventsForRun', runId)
+      commit('CLEAR_STREAMING_STATE')
+
+      console.log(`   ✅ Abort state cleared`)
+      return
+    }
+
+    // 处理有 message 的状态
+    if (!message) {
+      console.warn('   ⚠️ No message in payload for state:', msgState)
+      return
+    }
+
     const newContent = await dispatch('extractMessageContent', message)
     const contentType = await dispatch('detectContentType', newContent)
 
     console.log(`   - Raw message:`, JSON.stringify(message).substring(0, 200))
-    console.log(`   - Extracted content: "${newContent.substring(0, 100)}..."`)
-    console.log(`   - Content length: ${newContent.length}`)
+    console.log(`   - Extracted content: "${newContent ? newContent.substring(0, 100) : 'undefined'}..."`)
+    console.log(`   - Content length: ${newContent ? newContent.length : 0}`)
     console.log(`   - Content type: ${contentType}`)
 
     // 清除"正在思考"状态 - 只要有消息内容就清除
-    if (newContent.trim().length > 0) {
+    if (newContent && newContent.trim().length > 0) {
       console.log('🤖 Clearing thinking state - content received')
       commit('SET_THINKING_MESSAGE_ID', null)
     }
