@@ -315,7 +315,7 @@ const actions = {
       // 只有在有runId的情况下才发送abort消息到后端
       // 如果还在等待服务器响应（没有runId），只清理前端状态
       if (state.currentRunId) {
-        console.log('   ✅ Calling abortChat API with runId...')
+        console.log('   ✅ Calling abortChat API with runId:', state.currentRunId)
         await abortChat(state.currentSessionKey, state.currentRunId)
         console.log('   ✅ Abort API call completed')
       } else {

@@ -100,27 +100,10 @@ export async function createSession(params: any): Promise<any> {
  */
 export async function abortChat(sessionKey: string, runId?: string): Promise<void> {
   console.log('[API] abortChat called:', { sessionKey, runId })
+  const result = await window.electronAPI.abortChat(sessionKey, runId)
+  console.log('[API] abortChat result:', result)
 
-  // 添加超时处理，防止卡住
-  const timeoutPromise = new Promise((_, reject) => {
-    setTimeout(() => reject(new Error('Abort chat timeout after 5 seconds')), 5000)
-  })
-
-  const abortPromise = window.electronAPI.abortChat(sessionKey, runId)
-
-  try {
-    const result = await Promise.race([abortPromise, timeoutPromise]) as any
-
-    console.log('[API] abortChat result:', result)
-
-    if (!result.success) {
-      console.error('   ❌ Abort chat failed:', result.error)
-      throw new Error(result.error || '取消聊天失败')
-    }
-
-    console.log('   ✅ Abort chat API success')
-  } catch (error: any) {
-    console.error('   ❌ Abort chat error:', error.message)
-    throw error
+  if (!result.success) {
+    throw new Error(result.error || '取消聊天失败')
   }
 }

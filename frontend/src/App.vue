@@ -174,24 +174,12 @@ export default {
         return
       }
 
-      // 立即重置状态，不等后端响应（改善 UX）
-      console.log('   🔄 Resetting state immediately for better UX')
-      this.$store.commit('chat/CLEAR_STREAMING_STATE')
-      this.$store.commit('chat/SET_THINKING_MESSAGE_ID', null)
-      this.$store.commit('chat/SET_IS_SENDING', false)
-      this.$store.commit('chat/SET_CURRENT_RUN_ID', null)
-
-      // 异步调用 abort API，不等待响应
-      console.log('   ✅ Calling abort API asynchronously')
-      this.abortCurrentChat()
-        .then(() => {
-          console.log('   ✅ Abort API completed successfully')
-          this.showToast({ message: '已停止生成', type: 'success' })
-        })
-        .catch((error: any) => {
-          console.error('   ⚠️ Abort API failed (state already reset):', error.message)
-          // 状态已经重置了，所以这里只是记录错误
-        })
+      try {
+        await this.abortCurrentChat()
+        this.showToast({ message: '已停止生成', type: 'success' })
+      } catch (error: any) {
+        this.showToast({ message: error.message || '停止生成失败', type: 'error' })
+      }
     },
 
     startResize(event: MouseEvent) {
