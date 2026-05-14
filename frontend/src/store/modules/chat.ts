@@ -18,7 +18,9 @@ const state: ChatState = {
   loading: false,
   currentRunId: null,
   isSending: false,
-  processedEvents: {} as Record<string, boolean>
+  processedEvents: {} as Record<string, boolean>,
+  runsWithTools: {} as Record<string, number>,
+  preToolTextLength: {} as Record<string, number>
 }
 
 const getters = {
@@ -146,6 +148,18 @@ const mutations = {
     }
     state.isSending = false
     state.currentRunId = null
+  },
+  SET_RUNS_WITH_TOOLS(state: ChatState, payload: { runId: string; count: number }) {
+    Vue.set(state.runsWithTools, payload.runId, payload.count)
+  },
+  DELETE_RUNS_WITH_TOOLS(state: ChatState, runId: string) {
+    Vue.delete(state.runsWithTools, runId)
+  },
+  SET_PRE_TOOL_TEXT_LENGTH(state: ChatState, payload: { runId: string; length: number }) {
+    Vue.set(state.preToolTextLength, payload.runId, payload.length)
+  },
+  DELETE_PRE_TOOL_TEXT_LENGTH(state: ChatState, runId: string) {
+    Vue.delete(state.preToolTextLength, runId)
   }
 }
 
@@ -627,7 +641,11 @@ const actions = {
     const kind = data?.kind
     const toolCallId = data?.toolCallId || String(seq)
 
-    console.log(`🔧🔧🔧 Tool stream: runId=${runId}, seq=${seq}, phase=${phase}, tool=${tool}`)
+    // 标记此 runId 已有工具事件，后续文本需要新开气泡
+    const currentCount = (state.runsWithTools as any)[runId] || 0
+    commit('SET_RUNS_WITH_TOOLS', { runId, count: currentCount + 1 })
+
+    console.log(`🔧🔧🔧 Tool stream: runId=${runId}, seq=${seq}, phase=${phase}, tool=${tool}, toolCallId=${toolCallId}`)
 
     if (!state.messages[sessionKey]) {
       commit('SET_MESSAGES', { sessionKey, messages: [] })
@@ -637,6 +655,59 @@ const actions = {
     const existingIndex = state.messages[sessionKey].findIndex((m: Message) => m.id === messageId)
 
     if (phase === 'start') {
+      // 记录工具执行前已展示的文本长度，并冻结 ${runId}-text 消息
+      const preToolMsg = state.messages[sessionKey]?.find((m: Message) => m.id === `${runId}-text`)
+      if (preToolMsg && !(preToolMsg.metadata as any)?.frozen) {
+        const currentContent = preToolMsg.content
+        let cutPoint = currentContent.length
+        for (const marker of ['。\n', '\n\n', '\n', '。', '!', '?']) {
+          const idx = currentContent.lastIndexOf(marker)
+          if (idx !== -1 && idx < cutPoint - 2) {
+            cutPoint = idx + marker.length
+            break
+          }
+        }
+        if (cutPoint >= currentContent.length && currentContent.length > 100) {
+          cutPoint = Math.min(100, currentContent.length)
+        }
+
+        const frozenContent = cutPoint < currentContent.length
+          ? currentContent.substring(0, cutPoint)
+          : currentContent
+
+        commit('SET_PRE_TOOL_TEXT_LENGTH', { runId, length: frozenContent.length })
+
+        const metadata = { ...(preToolMsg.metadata || {}), frozen: true }
+        commit('UPDATE_MESSAGE', {
+          sessionKey,
+          messageId: `${runId}-text`,
+          updates: { content: frozenContent, metadata, status: 'sent' as const }
+        })
+        console.log(`📏 Pre-tool text frozen at length ${frozenContent.length}: "${frozenContent.substring(0, 50)}..."`)
+
+        // 如果有剩余内容，创建 after-tool 消息
+        if (cutPoint < currentContent.length) {
+          const afterToolMsg: Message = {
+            id: `${runId}-text-after-tool-1`,
+            role: preToolMsg.role,
+            content: currentContent.substring(cutPoint),
+            timestamp: Date.now(),
+            status: 'sent',
+            metadata: {
+              contentType: 'text',
+              source: 'extracted_from_pre_tool'
+            }
+          }
+          commit('ADD_MESSAGE', { sessionKey, message: afterToolMsg })
+          console.log(`   - Created after-tool message with extracted content`)
+        }
+      } else if (preToolMsg) {
+        commit('SET_PRE_TOOL_TEXT_LENGTH', { runId, length: preToolMsg.content.length })
+      } else {
+        commit('SET_PRE_TOOL_TEXT_LENGTH', { runId, length: 0 })
+      }
+
+      // 工具开始执行
       if (existingIndex === -1) {
         const args = data?.args
         const newMessage: Message = {
@@ -867,19 +938,55 @@ const actions = {
       commit('SET_THINKING_MESSAGE_ID', null)
     }
 
-    const messageId = `${runId}-${contentType}`
+    // 关键修复：如果此 runId 已有工具事件，且当前是文本内容，
+    // 则在文本消息 ID 中加入 afterTool 后缀，创建新的气泡
+    const toolCount = (state.runsWithTools as any)[runId] || 0
+    let messageId: string
+    let afterToolContent: string | null = null
+    if (contentType === 'text' && toolCount > 0) {
+      messageId = `${runId}-text-after-tool-${toolCount}`
+      // 提取工具执行后的增量文本
+      const preLen = (state.preToolTextLength as any)[runId] || 0
+      if (preLen > 0 && newContent.length > preLen) {
+        afterToolContent = newContent.substring(preLen)
+      } else if (preLen === 0) {
+        afterToolContent = newContent
+      }
+      // 如果 afterToolContent 仍为空，跳过此事件
+      if (!afterToolContent && preLen > 0) {
+        console.log(`   - No new content after tool (preLen=${preLen}, contentLen=${newContent ? newContent.length : 0}), skipping`)
+        return
+      }
+    } else {
+      messageId = `${runId}-${contentType}`
+    }
+
     const existingIndex = state.messages[targetSessionKey].findIndex((m: Message) => m.id === messageId)
 
     if (msgState === 'delta') {
+      // 跳过对已冻结消息的更新（工具执行后不应再修改 pre-tool 消息）
+      if (existingIndex !== -1) {
+        const existingMsg = state.messages[targetSessionKey][existingIndex]
+        if ((existingMsg.metadata as any)?.frozen) {
+          console.log(`   - Skipping delta: message ${messageId} is frozen`)
+          return
+        }
+      }
+
       if (contentType === 'text' && state.currentRunId === runId) {
         commit('SET_STREAMING_MESSAGE_ID', messageId)
       }
 
+      // 使用 afterToolContent（工具后增量文本）或 newContent
+      const effectiveContent = afterToolContent ?? newContent
+
       if (existingIndex !== -1) {
         const currentContent = state.messages[targetSessionKey][existingIndex].content
-        const appendedContent = await dispatch('appendTextContent', { previous: currentContent, next: newContent })
+        const appendedContent = await dispatch('appendTextContent', { previous: currentContent, next: effectiveContent })
 
         console.log(`📝 Appending to message ${messageId}:`)
+        console.log(`   - Current: "${currentContent.substring(0, 30)}..."`)
+        console.log(`   - New: "${effectiveContent.substring(0, 30)}..."`)
 
         const updatedMessage = {
           ...state.messages[targetSessionKey][existingIndex],
@@ -892,7 +999,7 @@ const actions = {
         const newMessage: Message = {
           id: messageId,
           role: message?.role || 'assistant',
-          content: newContent,
+          content: effectiveContent,
           timestamp: message?.timestamp || Date.now(),
           status: 'streaming',
           metadata: {
@@ -931,6 +1038,8 @@ const actions = {
       })
 
       await dispatch('clearProcessedEventsForRun', runId)
+      commit('DELETE_RUNS_WITH_TOOLS', runId)
+      commit('DELETE_PRE_TOOL_TEXT_LENGTH', runId)
     } else if (msgState === 'error') {
       console.error(`❌ Error in run ${runId}:`, payload.errorMessage)
 
@@ -953,6 +1062,8 @@ const actions = {
         }
       })
       await dispatch('clearProcessedEventsForRun', runId)
+      commit('DELETE_RUNS_WITH_TOOLS', runId)
+      commit('DELETE_PRE_TOOL_TEXT_LENGTH', runId)
     } else if (msgState === 'aborted') {
       console.log(`⏹️ Run ${runId} aborted`)
 
@@ -975,6 +1086,8 @@ const actions = {
         }
       })
       await dispatch('clearProcessedEventsForRun', runId)
+      commit('DELETE_RUNS_WITH_TOOLS', runId)
+      commit('DELETE_PRE_TOOL_TEXT_LENGTH', runId)
     } else {
       // 未知状态 - 记录并清除thinking状态
       console.warn(`⚠️ Unknown msgState: ${msgState}`)

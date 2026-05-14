@@ -80,7 +80,7 @@ export default {
       return containerRef.scrollHeight - containerRef.scrollTop - containerRef.clientHeight > threshold
     },
 
-    // 排序后的消息列表：同一 runId 内，文本消息在前，工具消息在后
+    // 排序后的消息列表：同一 runId 内，文本消息在前，工具消息在后，工具后文本在最后
     sortedMessages(): Message[] {
       const result = [...this.messages]
 
@@ -105,7 +105,7 @@ export default {
         }
       }
 
-      // 对每个 run 内的消息按类型排序（文本在前，工具在后）
+      // 对每个 run 内的消息按类型排序（文本在前，工具在中，工具后文本在后）
       for (const [, indices] of runIndices) {
         const sorted = indices.map(i => result[i]).sort((a, b) => {
           const pa = this.getMessageTypePriority(a)
