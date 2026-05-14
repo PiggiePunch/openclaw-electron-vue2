@@ -15,8 +15,13 @@
 
     <!-- 普通消息 -->
     <template v-else>
-      <div class="message-avatar">
-        {{ avatarText }}
+      <div v-if="!isUserMessage" class="message-avatar" :class="`avatar-${message.role}`">
+        <template v-if="message.role === 'assistant' || message.role === 'system' || message.role === 'tool'">
+          <img :src="clawLogo" class="claw-logo" alt="Claw" />
+        </template>
+        <template v-else>
+          {{ avatarText }}
+        </template>
       </div>
       <div class="message-content-wrapper">
         <div class="message-header">
@@ -39,11 +44,20 @@ import type { Message } from '@/types'
 import { renderMarkdownSync, formatTimestamp } from '@/utils'
 import ToolCallItem from './ToolCallItem.vue'
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const clawLogo = require('@/assets/openclaw-logo.png')
+
 export default {
   name: 'MessageItem',
 
   components: {
     ToolCallItem
+  },
+
+  data() {
+    return {
+      clawLogo
+    }
   },
 
   props: {
@@ -69,19 +83,25 @@ export default {
 
     avatarText(): string {
       if (this.message.role === 'user') return 'U'
-      if (this.message.role === 'system') return '🔧'
+      if (this.message.role === 'system') return ''
       return 'A'
     },
 
     senderName(): string {
-      if (this.message.role === 'user') return '你'
-      if (this.message.role === 'system') {
-        if (this.message.metadata?.type === 'tool_call' || this.message.metadata?.type === 'tool_result') {
-          return `工具: ${this.message.metadata.toolName || 'unknown'}`
-        }
+      if (this.message.role === 'user') return '我'
+      // 优先检查是否是工具消息（通过 metadata.type 判断，不依赖 role）
+      if (this.isToolCallMessage) {
+        return `Tool: ${this.message.metadata?.toolName || 'unknown'}`
+      }
+      if (this.message.role === 'system' || this.message.role === 'tool') {
+        if (this.message.role === 'tool') return 'Claw'
         return '系统'
       }
-      return 'Assistant'
+      return 'Claw'
+    },
+
+    isUserMessage(): boolean {
+      return this.message.role === 'user'
     },
 
     formattedTime(): string {
@@ -109,18 +129,18 @@ export default {
         }).filter(Boolean).join('')
       }
 
-      // 处理工具调用和思考标记
+      // 处理工具调用和思考标记，使用 SVG icon 替代 emoji
       content = content
         .replace(/\[工具调用:\s*([^\]]+)\]/g, (match: string, toolName: string) => {
-          return `<span class="tool-call-badge">🔧 调用工具: ${toolName}</span>`
+          return `<span class="tool-call-badge"><svg class="badge-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> 调用工具: ${toolName}</span>`
         })
-        .replace(/\[工具结果\]/g, '<span class="tool-result-badge">📋 工具结果</span>')
-        .replace(/\[thinking\]/g, '<span class="thinking-badge">💭 思考中...</span>')
+        .replace(/\[工具结果\]/g, '<span class="tool-result-badge"><svg class="badge-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 工具结果</span>')
+        .replace(/\[thinking\]/g, '<span class="thinking-badge"><svg class="badge-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/></svg> 思考中...</span>')
         .replace(/\[toolCall\](.*?)\[\/toolCall\]/g, (match: string, toolName: string) => {
-          return `<span class="tool-call-badge">🔧 调用工具: ${toolName}</span>`
+          return `<span class="tool-call-badge"><svg class="badge-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> 调用工具: ${toolName}</span>`
         })
-        .replace(/\[toolResult\]/g, '<span class="tool-result-badge">📋 工具结果</span>')
-        .replace(/\[toolCall\]/g, '<span class="tool-call-badge">🔧 工具调用</span>')
+        .replace(/\[toolResult\]/g, '<span class="tool-result-badge"><svg class="badge-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg> 工具结果</span>')
+        .replace(/\[toolCall\]/g, '<span class="tool-call-badge"><svg class="badge-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> 工具调用</span>')
 
       const shouldShowCursor = this.isActuallyStreaming
 
@@ -151,6 +171,33 @@ export default {
 
 .message-item:hover {
   background: hsl(var(--muted) / 0.3);
+}
+
+/* 用户消息右对齐，类似微信（无头像） */
+.message-user {
+  align-self: flex-end;
+}
+
+.message-user .message-content-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.message-user .message-content {
+  background: #95ec69;
+  color: #000;
+  border-radius: 12px;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  max-width: 60vw;
+}
+
+.message-user .message-header {
+  justify-content: flex-end;
+}
+
+.message-user:hover {
+  background: transparent;
 }
 
 .message-item.streaming {
@@ -186,17 +233,20 @@ export default {
   font-weight: 600;
   font-size: 0.875rem;
   flex-shrink: 0;
+  overflow: hidden;
 }
 
-.message-user .message-avatar {
-  background: hsl(var(--secondary));
-}
-
+/* Assistant / System 头像容器 */
+.message-assistant .message-avatar,
 .message-system:not(.is-tool-call) .message-avatar {
-  background: hsl(var(--muted));
-  font-size: 1.25rem;
+  background: transparent;
+  width: 44px;
+  height: 44px;
+  border-radius: 0;
+  overflow: visible;
 }
 
+/* 系统消息内容（不包括工具调用消息） */
 .message-system:not(.is-tool-call) .message-content-wrapper {
   background: hsl(var(--muted) / 0.2);
   border-radius: calc(var(--radius) - 2px);
@@ -277,8 +327,11 @@ export default {
   text-decoration: underline;
 }
 
+/* 工具调用和思考标记样式 */
 .message-content ::v-deep(.tool-call-badge) {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   background: hsl(var(--primary) / 0.1);
   border: 1px solid hsl(var(--primary) / 0.3);
   color: hsl(var(--primary));
@@ -291,7 +344,9 @@ export default {
 }
 
 .message-content ::v-deep(.tool-result-badge) {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   background: hsl(142, 76%, 36% / 0.1);
   border: 1px solid hsl(142, 76%, 36% / 0.3);
   color: hsl(142, 76%, 36%);
@@ -303,7 +358,9 @@ export default {
 }
 
 .message-content ::v-deep(.thinking-badge) {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   background: hsl(var(--muted) / 0.3);
   color: hsl(var(--muted-foreground));
   padding: 0.125rem 0.375rem;
@@ -311,6 +368,10 @@ export default {
   font-size: 0.75rem;
   font-style: italic;
   margin: 0.25rem 0;
+}
+
+.badge-icon {
+  flex-shrink: 0;
 }
 
 .streaming-cursor {

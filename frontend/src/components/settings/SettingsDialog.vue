@@ -15,7 +15,7 @@
             :class="{ active: activeTab === tab.key }"
             @click="switchTab(tab.key)"
           >
-            <span class="text-base">{{ tab.icon }}</span>
+            <Icon :name="tab.icon" :size="16" />
             <span class="text-sm font-medium">{{ tab.label }}</span>
           </div>
         </div>
@@ -33,6 +33,7 @@
 
 <script lang="ts">
 import { mapState, mapActions } from 'vuex'
+import Icon from '@/components/common/Icon.vue'
 
 // 占位组件 - 后续实现
 import SessionsPanel from './SessionsPanel.vue'
@@ -44,6 +45,7 @@ export default {
   name: 'SettingsDialog',
 
   components: {
+    Icon,
     SessionsPanel,
     CronPanel,
     ConfigPanel,
@@ -58,10 +60,10 @@ export default {
 
     tabs() {
       return [
-        { key: 'sessions', icon: '📋', label: '对话列表' },
-        { key: 'cron', icon: '⏰', label: '定时任务' },
-        { key: 'config', icon: '⚙️', label: '配置' },
-        { key: 'logs', icon: '📝', label: '日志' }
+        { key: 'sessions', icon: 'clipboard-list', label: '对话列表' },
+        { key: 'cron', icon: 'clock', label: '定时任务' },
+        { key: 'config', icon: 'settings', label: '配置' },
+        { key: 'logs', icon: 'file-text', label: '日志' }
       ]
     }
   },

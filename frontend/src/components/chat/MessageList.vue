@@ -5,13 +5,13 @@
       <div>加载消息中...</div>
     </div>
 
-    <div v-else-if="messages.length === 0" class="message-list-empty">
+    <div v-else-if="sortedMessages.length === 0" class="message-list-empty">
       <p>暂无消息</p>
     </div>
 
     <div v-else class="message-list-content">
       <MessageItem
-        v-for="message in messages"
+        v-for="message in sortedMessages"
         :key="message.id"
         :message="message"
         :is-streaming="message.id === streamingMessageId"
@@ -63,7 +63,8 @@ export default {
 
   data() {
     return {
-      previousMessageCount: 0
+      previousMessageCount: 0,
+      previousMessagesRef: null as Message[] | null
     }
   },
 
@@ -77,15 +78,73 @@ export default {
       if (!containerRef) return false
       const threshold = 150
       return containerRef.scrollHeight - containerRef.scrollTop - containerRef.clientHeight > threshold
+    },
+
+    // 排序后的消息列表：同一 runId 内，文本消息在前，工具消息在后
+    sortedMessages(): Message[] {
+      const result = [...this.messages]
+
+      // 收集所有 run 消息的索引
+      const runIndices = new Map<string, number[]>()
+
+      for (let i = 0; i < result.length; i++) {
+        const msg = result[i]
+        const isRunMessage = msg.id.includes('-tool-') ||
+          msg.id.includes('-text') ||
+          msg.id.includes('-tool_call') ||
+          msg.id.includes('-tool_result') ||
+          msg.id.includes('-thinking') ||
+          msg.id.includes('-agent_error')
+
+        if (isRunMessage) {
+          const runId = this.extractRunId(msg.id)
+          if (!runIndices.has(runId)) {
+            runIndices.set(runId, [])
+          }
+          runIndices.get(runId)!.push(i)
+        }
+      }
+
+      // 对每个 run 内的消息按类型排序（文本在前，工具在后）
+      for (const [, indices] of runIndices) {
+        const sorted = indices.map(i => result[i]).sort((a, b) => {
+          const pa = this.getMessageTypePriority(a)
+          const pb = this.getMessageTypePriority(b)
+          if (pa !== pb) return pa - pb
+          return 0
+        })
+        for (let i = 0; i < indices.length; i++) {
+          result[indices[i]] = sorted[i]
+        }
+      }
+
+      return result
     }
   },
 
   methods: {
+    // 提取消息的 runId（消息ID格式：runId-type 或 runId-tool-seq）
+    extractRunId(messageId: string): string {
+      const parts = messageId.split('-')
+      if (parts.length >= 2) {
+        return parts.slice(0, -1).join('-')
+      }
+      return messageId
+    },
+
+    // 获取消息的类型优先级（用于排序）
+    getMessageTypePriority(message: Message): number {
+      const type = message.metadata?.type
+      if (type === 'tool_call' || type === 'tool_result' || type === 'tool_error') return 1
+      if (message.role === 'user') return -1 // 用户消息保持原序
+      return 0 // 文本消息
+    },
+
     scrollToBottom(force = false) {
       this.$nextTick(() => {
         const containerRef = this.$refs.containerRef as HTMLElement
         if (containerRef) {
-          // force=true时强制滚动（新消息、流式状态变化等）
+          // force=true时强制滚动（新消息、会话切换等）
           // force=false时，只在用户没有向上滚动时才滚动
           if (force || !this.isUserScrolledUp) {
             containerRef.scrollTop = containerRef.scrollHeight
@@ -96,22 +155,27 @@ export default {
   },
 
   watch: {
-    messages(newMessages: Message[], oldMessages: Message[]) {
-      const currentCount = newMessages.length
-      const previousCount = this.previousMessageCount
+    messages: {
+      handler(newMessages: Message[]) {
+        const currentCount = newMessages.length
+        const prevRef = this.previousMessagesRef as any
 
-      // 消息数量增加（新消息），强制滚动
-      if (currentCount > previousCount) {
-        console.log('📜 New message added, forcing scroll to bottom')
-        this.scrollToBottom(true)
-      } else if (currentCount === previousCount && this.streamingMessageId) {
-        // 消息数量未变但有流式消息，说明是内容更新
-        // 只在用户没有向上滚动时滚动
-        console.log('📜 Streaming content update, conditional scroll')
-        this.scrollToBottom(false)
-      }
+        // 检测是否切换了会话（数组引用不同且引用非首次设置）
+        const isSessionSwitch = prevRef !== null && newMessages !== prevRef
 
-      this.previousMessageCount = currentCount
+        if (isSessionSwitch || currentCount > this.previousMessageCount) {
+          // 切换会话 或 新消息，强制滚动到底部
+          this.scrollToBottom(true)
+        } else if (currentCount === this.previousMessageCount && this.streamingMessageId) {
+          // 消息数量未变但有流式消息，说明是内容更新
+          // 只在用户没有向上滚动时滚动
+          this.scrollToBottom(false)
+        }
+
+        this.previousMessageCount = currentCount
+        this.previousMessagesRef = newMessages
+      },
+      deep: true
     },
 
     streamingMessageId() {

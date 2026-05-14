@@ -17,7 +17,7 @@
 
     <div class="sessions-header" @click="toggleSessions">
       <div class="flex items-center gap-2">
-        <span class="sessions-header-icon">💬</span>
+        <span class="sessions-header-icon"><Icon name="message-square" :size="16" /></span>
         <span class="text-sm font-semibold">历史对话</span>
       </div>
       <div class="flex items-center gap-2">
@@ -51,13 +51,15 @@
 import { mapState, mapActions } from 'vuex'
 import SessionItem from './SessionItem.vue'
 import PromptDialog from '@/components/common/PromptDialog.vue'
+import Icon from '@/components/common/Icon.vue'
 
 export default {
   name: 'SessionList',
 
   components: {
     SessionItem,
-    PromptDialog
+    PromptDialog,
+    Icon
   },
 
   computed: {
@@ -178,7 +180,8 @@ export default {
 }
 
 .sessions-header-icon {
-  font-size: 1rem;
+  display: flex;
+  align-items: center;
 }
 
 .sessions-count {

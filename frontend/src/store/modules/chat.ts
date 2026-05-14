@@ -50,6 +50,34 @@ const mutations = {
     }
     state.messages[payload.sessionKey].push(payload.message)
   },
+  /**
+   * 在正确的位置插入工具消息
+   * 策略：工具消息插入到同 runId 的最后一条文本消息之后
+   * 保证视觉顺序为：文字 → 工具调用 → 文字续接
+   */
+  INSERT_MESSAGE_AFTER_TEXT(state: ChatState, payload: { sessionKey: string; message: Message; runId: string }) {
+    if (!state.messages[payload.sessionKey]) {
+      Vue.set(state.messages, payload.sessionKey, [])
+    }
+    const msgs = state.messages[payload.sessionKey]
+    // 找到同 runId 的最后一条非工具消息（文本消息）的位置
+    let insertIndex = -1
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i]
+      if (m.id.startsWith(payload.runId)) {
+        const type = m.metadata?.type
+        if (type !== 'tool_call' && type !== 'tool_result' && type !== 'tool_error') {
+          insertIndex = i
+          break
+        }
+      }
+    }
+    if (insertIndex >= 0) {
+      msgs.splice(insertIndex + 1, 0, payload.message)
+    } else {
+      msgs.push(payload.message)
+    }
+  },
   UPDATE_MESSAGE(state: ChatState, payload: { sessionKey: string; messageId: string; updates: Partial<Message> }) {
     if (!state.messages[payload.sessionKey]) return
     const index = state.messages[payload.sessionKey].findIndex(m => m.id === payload.messageId)
@@ -234,15 +262,76 @@ const actions = {
               }).filter(Boolean).join('')
             }
 
+            // 规范化角色：将非标准角色统一映射
+            const normalizeRole = (msg: any): string => {
+              const role = (msg.role || msg.sender || msg.type || 'user').toLowerCase()
+              if (role === 'user') return 'user'
+              if (role === 'assistant' || role === 'model') return 'assistant'
+              if (role === 'system') return 'system'
+              if (role === 'tool' || role === 'toolresult' || role === 'tool_result' || role === 'function') return 'tool'
+              return 'system'
+            }
+
+            // 根据原始角色设置 metadata.type（用于历史记录中的工具消息识别）
+            const originalRole = (msg.role || msg.sender || msg.type || '').toLowerCase()
+            let metadataType = msg.metadata?.type || msg.meta?.type
+            let toolName = msg.toolName || msg.tool_name || msg.tool || msg.name
+
+            // 检查原始内容数组中是否有 tool_use 块（历史记录中的工具调用）
+            const rawContent = msg.content || msg.text || msg.body || msg.message
+            if (Array.isArray(rawContent) && !metadataType) {
+              for (const part of rawContent) {
+                if (part && typeof part === 'object') {
+                  if (part.type === 'tool_use' || part.type === 'tool_use_call') {
+                    metadataType = 'tool_call'
+                    if (!toolName) toolName = part.name || part.id || 'unknown'
+                  }
+                  if (part.type === 'tool_result') {
+                    metadataType = 'tool_result'
+                    if (!toolName) toolName = part.toolName || part.name || 'unknown'
+                  }
+                }
+              }
+            }
+
+            // 如果还没设置 metadataType，检查原始角色
+            if (!metadataType) {
+              if (originalRole === 'tool' || originalRole === 'toolresult' || originalRole === 'tool_result' || originalRole === 'function') {
+                const contentStr = typeof content === 'string' ? content : ''
+                if (contentStr.includes('[工具调用:') || contentStr.includes('[toolCall]') || contentStr.includes('tool_use')) {
+                  metadataType = 'tool_call'
+                  if (!toolName) {
+                    const match = contentStr.match(/\[工具调用:\s*([^\]]+)\]/)
+                    if (match) toolName = match[1]
+                  }
+                } else if (contentStr.includes('[工具结果]') || contentStr.includes('[toolResult]') || contentStr.includes('tool_result')) {
+                  metadataType = 'tool_result'
+                } else {
+                  metadataType = 'tool_result'
+                }
+              }
+            }
+
+            // 最终兜底：如果 metadataType 已设置但 toolName 仍为空，从转换后的 content 字符串中提取
+            if (metadataType && !toolName && typeof content === 'string') {
+              const match = content.match(/\[工具调用:\s*([^\]]+)\]/)
+              if (match) toolName = match[1]
+            }
+
             return {
               id: msg.id || msg.messageId || msg.msgId || `msg-${Date.now()}-${Math.random()}`,
-              role: msg.role || msg.sender || msg.type || 'user',
+              role: normalizeRole(msg),
               content: content,
               timestamp: msg.timestamp || msg.createdAt || msg.created_at || msg.time || Date.now(),
               createdAt: msg.createdAt || msg.created_at || msg.timestamp || Date.now(),
               status: msg.status || 'sent',
               attachments: msg.attachments || [],
-              metadata: msg.metadata || msg.meta || {}
+              metadata: {
+                ...(msg.metadata || {}),
+                ...(msg.meta || {}),
+                ...(metadataType ? { type: metadataType } : {}),
+                ...(toolName ? { toolName } : {})
+              }
             }
           })
         : []
@@ -566,7 +655,7 @@ const actions = {
             kind
           }
         }
-        commit('ADD_MESSAGE', { sessionKey, message: newMessage })
+        commit('INSERT_MESSAGE_AFTER_TEXT', { sessionKey, message: newMessage, runId })
       }
     } else if (phase === 'update') {
       if (existingIndex !== -1) {
@@ -622,7 +711,7 @@ const actions = {
             isError
           }
         }
-        commit('ADD_MESSAGE', { sessionKey, message: newMessage })
+        commit('INSERT_MESSAGE_AFTER_TEXT', { sessionKey, message: newMessage, runId })
       }
     }
   },

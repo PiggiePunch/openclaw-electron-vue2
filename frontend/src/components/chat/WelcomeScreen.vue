@@ -4,7 +4,7 @@
       <h3 class="welcome-title">欢迎使用 OpenClaw Desktop Client</h3>
       <p class="welcome-subtitle">开始使用：</p>
       <ol class="welcome-steps">
-        <li>点击右上角的 <strong>⚙️</strong> 设置按钮</li>
+        <li>点击右上角的 <strong><Icon name="settings" :size="14" class="inline-icon" /></strong> 设置按钮</li>
         <li>在设置中选择 <strong>Config</strong></li>
         <li>配置你的 Gateway URL 和 token</li>
         <li>点击 <strong>Save & Connect</strong></li>
@@ -16,8 +16,11 @@
 </template>
 
 <script lang="ts">
+import Icon from '@/components/common/Icon.vue'
+
 export default {
-  name: 'WelcomeScreen'
+  name: 'WelcomeScreen',
+  components: { Icon }
 }
 </script>
 
@@ -64,5 +67,10 @@ export default {
 
 .welcome-steps strong {
   color: hsl(var(--foreground));
+}
+
+.inline-icon {
+  display: inline-block;
+  vertical-align: middle;
 }
 </style>
